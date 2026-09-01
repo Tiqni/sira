@@ -15,9 +15,16 @@ jobs:
     env:
       FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
     steps:
+      # The built-in GITHUB_TOKEN cannot open pull requests unless the
+      # repository enables "Allow GitHub Actions to create and approve pull
+      # requests", and pull requests it opens never trigger `on: pull_request`
+      # workflows, so CI would never run on a release pull request. A personal
+      # access token in RELEASE_TOKEN avoids both problems. Fall back to the
+      # built-in token so that pushes with nothing to release still work; the
+      # step below fails loudly if a release actually needs the token.
       - uses: actions/checkout@v4
         with:
-          token: ${{ secrets.GITHUB_TOKEN }}
+          token: ${{ secrets.RELEASE_TOKEN || github.token }}
           fetch-depth: 0
 
       - name: Install uv
@@ -44,14 +51,26 @@ jobs:
           echo "NEW_VERSION=$NEW_VERSION" >> "$GITHUB_ENV"
           echo "BRANCH=release/v$NEW_VERSION" >> "$GITHUB_ENV"
 
+      # Print the newest release section only: start at the first "## " heading
+      # (skipping the changelog preamble) and stop at the next one.
       - name: Extract changelog body
         if: env.BUMP_NEEDED == 'true'
-        run: awk '/^## /{if(++c>1)exit} {print}' CHANGELOG.md > body.md
+        run: awk '/^## /{if(++c>1) exit} c' CHANGELOG.md > body.md
+
+      - name: Verify release token is configured
+        if: env.BUMP_NEEDED == 'true'
+        env:
+          RELEASE_TOKEN: ${{ secrets.RELEASE_TOKEN }}
+        run: |
+          if [ -z "$RELEASE_TOKEN" ]; then
+            echo "::error::RELEASE_TOKEN secret is not set. Create a fine-grained personal access token with Contents: read and write plus Pull requests: read and write on this repository, then add it as the repository secret RELEASE_TOKEN."
+            exit 1
+          fi
 
       - name: Push to release branch and create PR
         if: env.BUMP_NEEDED == 'true'
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ secrets.RELEASE_TOKEN }}
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
@@ -59,14 +78,21 @@ jobs:
           git add pyproject.toml CHANGELOG.md uv.lock
           git commit -m "chore(release): bump version $NEW_VERSION"
           git push origin "$BRANCH" --force
-          gh pr create \
-            --title "chore(release): bump version $NEW_VERSION" \
-            --body "$(cat body.md)" \
-            --base main \
-            --head "$BRANCH" || \
-          gh pr edit "$BRANCH" \
-            --title "chore(release): bump version $NEW_VERSION" \
-            --body "$(cat body.md)"
+          # Look the pull request up explicitly. Using `gh pr create || gh pr
+          # edit` as a fallback hides the real error from `create` behind a
+          # misleading "no pull requests found" from `edit`.
+          EXISTING=$(gh pr list --head "$BRANCH" --base main --state open --json number --jq '.[0].number // empty')
+          if [ -n "$EXISTING" ]; then
+            gh pr edit "$EXISTING" \
+              --title "chore(release): bump version $NEW_VERSION" \
+              --body-file body.md
+          else
+            gh pr create \
+              --title "chore(release): bump version $NEW_VERSION" \
+              --body-file body.md \
+              --base main \
+              --head "$BRANCH"
+          fi
 
   tag-and-release:
     runs-on: ubuntu-latest
@@ -95,7 +121,7 @@ jobs:
           git push origin "v$VERSION"
 
       - name: Extract changelog for release
-        run: awk '/^## /{if(++c>1)exit} {print}' CHANGELOG.md > body.md
+        run: awk '/^## /{if(++c>1) exit} c' CHANGELOG.md > body.md
 
       - name: Create GitHub Release
         uses: ncipollo/release-action@v1
