@@ -1,6 +1,6 @@
 [project]
 name = "sira"
-version = "1.0.0"
+version = "1.1.0"
 description = "Multi-agent AI that tailors your resume to a job posting without inventing facts."
 readme = "README.md"
 requires-python = ">=3.13"
