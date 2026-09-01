@@ -14,9 +14,14 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from typer import Exit as TyperExit
 
-from tests.factories import make_cv, make_result, make_scraped_job
+from sira.tools.job_scraper import RawScrape
+from tests.factories import make_cv, make_result
 
 pytestmark = pytest.mark.anyio
+
+CLEANED_JOB_MD = (
+    "# Senior Software Engineer\n\nRequirements: Python, distributed systems."
+)
 
 
 # ---------------------------------------------------------------------------
@@ -35,17 +40,24 @@ def _setup_mocks(
     """Patch all external collaborators needed by _tailor_impl()."""
     cv = cv or make_cv()
     workflow_result = make_result(cv=cv, passed=passed)
-    scraped_job = make_scraped_job()
 
     mock_workflow = MagicMock()
     mock_workflow.run = AsyncMock(return_value=workflow_result)
 
     mock_generate_resume = MagicMock(return_value="/fake/output/resume.md")
 
+    mock_fetch = AsyncMock(
+        return_value=RawScrape(
+            markdown_raw="raw body markdown",
+            source_text="<html>...</html>",
+            extraction_strategy="markitdown",
+        )
+    )
+
     if scraper_side_effect is not None:
         mock_scraper_run = AsyncMock(side_effect=scraper_side_effect)
     else:
-        mock_scraper_run = AsyncMock(return_value=MagicMock(output=scraped_job))
+        mock_scraper_run = AsyncMock(return_value=MagicMock(output=CLEANED_JOB_MD))
 
     mock_repo = MagicMock()
     mock_parser = MagicMock()
@@ -68,11 +80,13 @@ def _setup_mocks(
     mocks = {
         "workflow": mock_workflow,
         "generate_resume": mock_generate_resume,
+        "fetch": mock_fetch,
         "scraper_run": mock_scraper_run,
         "service": mock_svc,
     }
 
     patches = [
+        patch("sira.main.fetch_job_markdown", mock_fetch),
         patch("sira.main.job_scraper_agent.run", mock_scraper_run),
         patch(
             "sira.main.ResumeTailorWorkflow",
@@ -118,7 +132,15 @@ async def test_tailor_impl_persists_result_on_success(
 
     from sira.main import _tailor_impl
 
-    with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5]:
+    with (
+        patches[0],
+        patches[1],
+        patches[2],
+        patches[3],
+        patches[4],
+        patches[5],
+        patches[6],
+    ):
         exit_code = await _tailor_impl(
             job_url="https://example.com/job/123",
             resume_path=str(resume_file),
@@ -154,7 +176,15 @@ async def test_tailor_impl_failed_audit_persists_record(tmp_path, monkeypatch) -
 
     from sira.main import _tailor_impl
 
-    with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5]:
+    with (
+        patches[0],
+        patches[1],
+        patches[2],
+        patches[3],
+        patches[4],
+        patches[5],
+        patches[6],
+    ):
         exit_code = await _tailor_impl(
             job_url="https://example.com/job/123",
             resume_path=str(resume_file),
@@ -185,7 +215,15 @@ async def test_tailor_impl_save_failure_handled_gracefully(
 
     from sira.main import _tailor_impl
 
-    with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5]:
+    with (
+        patches[0],
+        patches[1],
+        patches[2],
+        patches[3],
+        patches[4],
+        patches[5],
+        patches[6],
+    ):
         exit_code = await _tailor_impl(
             job_url="https://example.com/job/123",
             resume_path=str(resume_file),
@@ -217,7 +255,15 @@ async def test_tailor_impl_cache_hit_reuses_pre_parsed_cv(
 
     from sira.main import _tailor_impl
 
-    with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5]:
+    with (
+        patches[0],
+        patches[1],
+        patches[2],
+        patches[3],
+        patches[4],
+        patches[5],
+        patches[6],
+    ):
         await _tailor_impl(
             job_url="https://example.com/job/123",
             resume_path=str(resume_file),
@@ -246,7 +292,15 @@ async def test_tailor_impl_cache_miss_falls_back_to_ai_parsing(
 
     from sira.main import _tailor_impl
 
-    with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5]:
+    with (
+        patches[0],
+        patches[1],
+        patches[2],
+        patches[3],
+        patches[4],
+        patches[5],
+        patches[6],
+    ):
         await _tailor_impl(
             job_url="https://example.com/job/123",
             resume_path=str(resume_file),
@@ -316,7 +370,7 @@ async def test_tailor_impl_interactive_flag_wired_through(
     output_dir.mkdir()
     monkeypatch.chdir(tmp_path)
 
-    from tests.factories import make_cv, make_result, make_scraped_job
+    from tests.factories import make_cv, make_result
 
     cv = make_cv()
     workflow_result = make_result(cv=cv, passed=True)
@@ -331,8 +385,18 @@ async def test_tailor_impl_interactive_flag_wired_through(
 
     with (
         _patch(
+            "sira.main.fetch_job_markdown",
+            AsyncMock(
+                return_value=RawScrape(
+                    markdown_raw="raw body markdown",
+                    source_text="<html>...</html>",
+                    extraction_strategy="markitdown",
+                )
+            ),
+        ),
+        _patch(
             "sira.main.job_scraper_agent.run",
-            AsyncMock(return_value=MagicMock(output=make_scraped_job())),
+            AsyncMock(return_value=MagicMock(output=CLEANED_JOB_MD)),
         ),
         _patch("sira.main.ResumeTailorWorkflow", CapturingWorkflow),
         _patch(
