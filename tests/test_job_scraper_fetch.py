@@ -3,6 +3,8 @@
 import pytest
 from unittest.mock import AsyncMock
 
+from playwright.async_api import TimeoutError as PlaywrightTimeoutError
+
 from sira.tools.job_scraper import (
     RawScrape,
     ScrapeError,
@@ -10,6 +12,7 @@ from sira.tools.job_scraper import (
     html_to_markdown,
     validate_job_url,
     _FETCH_TIMEOUT_MS,
+    _MIN_QUALITY_CHARS,
     _SETTLE_MS,
     _RETRY_SETTLE_MS,
     _navigate_and_render,
@@ -99,6 +102,17 @@ class TestAssertQuality:
         with pytest.raises(ScrapeError):
             assert_quality(assert_md)
 
+    def test_short_but_non_placeholder_content_raises(self):
+        """Regression: the removed validate_extraction gate required 200+ chars.
+
+        This text clears detect_placeholder_content (>100 chars, no error
+        markers) but is still too thin to be a real posting.
+        """
+        thin = "We are hiring a backend engineer to join our team in Berlin. " * 2
+        assert 100 < len(thin.strip()) < _MIN_QUALITY_CHARS
+        with pytest.raises(ScrapeError, match="too short"):
+            assert_quality(thin)
+
 
 def test_rawscrape_is_frozen():
     raw = RawScrape(markdown_raw="x", source_text="y", extraction_strategy="markitdown")
@@ -122,7 +136,7 @@ class TestNavigateAndRender:
         page = _mock_page(
             body_text="A" * 500,
             content=REALISTIC_JOB_HTML,
-            settle_error=Exception("Timeout 5000ms exceeded"),
+            settle_error=PlaywrightTimeoutError("Timeout 5000ms exceeded"),
         )
         result = await _navigate_and_render(page, "https://careers.vinted.com/x")
         assert result == REALISTIC_JOB_HTML
@@ -142,6 +156,19 @@ class TestNavigateAndRender:
         result = await _navigate_and_render(page, "https://example.com/job")
         assert result == REALISTIC_JOB_HTML
         page.wait_for_timeout.assert_awaited_once_with(_RETRY_SETTLE_MS)
+
+    @pytest.mark.anyio
+    async def test_non_timeout_settle_error_propagates(self):
+        """Only the networkidle *timeout* is best-effort; real failures surface."""
+        page = _mock_page(
+            body_text="A" * 500,
+            content=REALISTIC_JOB_HTML,
+            settle_error=RuntimeError(
+                "Target page, context or browser has been closed"
+            ),
+        )
+        with pytest.raises(RuntimeError):
+            await _navigate_and_render(page, "https://example.com/job")
 
     @pytest.mark.anyio
     async def test_no_retry_on_long_body(self):

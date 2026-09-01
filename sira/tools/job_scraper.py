@@ -24,10 +24,16 @@ logger = logging.getLogger(__name__)
 _FETCH_TIMEOUT_MS = 30_000  # hard cap on goto(domcontentloaded)
 _SETTLE_MS = 5_000  # best-effort networkidle wait after the DOM is parsed
 _RETRY_SETTLE_MS = 3_000  # extra wait for the single retry when body looks short
-# Soft "render not finished, wait once more" trigger. Distinct from the HARD
-# quality gate in assert_quality(): detect_placeholder_content rejects content
-# under ~100 chars. Keep the two thresholds separate — do not unify them.
+# Soft "render not finished, wait once more" trigger, measured on the page's
+# visible body text during rendering. Distinct from the HARD quality gate in
+# assert_quality(), which is measured on the converted Markdown. The two happen
+# at different stages on different inputs — keep them separate, do not unify.
 _MIN_CONTENT_CHARS = 200  # below this, treat as not-yet-rendered / placeholder
+# Hard gate on the final Markdown. Matches the threshold the removed
+# validate_extraction tool enforced, so the deterministic path is no weaker
+# than the agent-tool path it replaces. detect_placeholder_content only
+# rejects under ~100 chars, which is not strict enough on its own.
+_MIN_QUALITY_CHARS = 200
 
 _USER_AGENT = (
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
@@ -80,6 +86,12 @@ def assert_quality(markdown: str) -> None:
             "Extracted content looks like a placeholder or error page, "
             "not a job posting"
         )
+    length = len(markdown.strip())
+    if length < _MIN_QUALITY_CHARS:
+        raise ScrapeError(
+            f"Extracted content too short ({length} chars, "
+            f"need at least {_MIN_QUALITY_CHARS})"
+        )
 
 
 async def _navigate_and_render(page, url: str) -> str:
@@ -90,12 +102,16 @@ async def _navigate_and_render(page, url: str) -> str:
     for sites whose network never goes idle. Retries once with a longer settle
     if the visible body text is suspiciously short.
     """
+    from playwright.async_api import TimeoutError as PlaywrightTimeoutError
+
     await page.goto(url, wait_until="domcontentloaded", timeout=_FETCH_TIMEOUT_MS)
     try:
         await page.wait_for_load_state("networkidle", timeout=_SETTLE_MS)
-    except Exception:
+    except PlaywrightTimeoutError:
         # networkidle is a bonus, never a gate: analytics/websockets keep the
         # network busy forever on many job boards. Proceed with what rendered.
+        # Only the timeout is best-effort — a real failure (navigation aborted,
+        # target closed) must still surface rather than yield partial HTML.
         logger.debug("networkidle settle timed out; proceeding", extra={"url": url})
     body_text = await page.inner_text("body")
     if len(body_text.strip()) < _MIN_CONTENT_CHARS:
@@ -112,11 +128,17 @@ async def _render_html(url: str) -> str:
 
     async with async_playwright() as p:
         browser = await p.chromium.launch(headless=True)
+        context = None
         try:
             context = await browser.new_context(user_agent=_USER_AGENT)
             page = await context.new_page()
             return await _navigate_and_render(page, url)
         finally:
+            # Playwright asks that contexts created with new_context() be closed
+            # before the browser, so pages shut down gracefully instead of being
+            # force-quit along with the browser.
+            if context is not None:
+                await context.close()
             await browser.close()
 
 
