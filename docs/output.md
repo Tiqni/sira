@@ -1,6 +1,8 @@
 # Output and reports
 
-A finished run writes four files per job, plus the report it prints to your terminal.
+A run whose audit passes writes four files per job, plus the report it prints to your
+terminal. When the audit fails you get the report only — see
+[When the audit fails](#when-the-audit-fails).
 
 ## Where files land
 

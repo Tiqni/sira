@@ -153,7 +153,7 @@ non-interactive job.
 
 | Code | Meaning |
 | --- | --- |
-| `0` | The run finished and files were written. |
+| `0` | The pipeline ran to the end. See the table below for what was written. |
 | `1` | The run failed, or you quit at an interactive checkpoint. |
 
 Failures that produce exit code `1` include: a `JOB_URL` that is not `http(s)`, a
@@ -161,5 +161,16 @@ resume file that does not exist or is empty, a resume format that cannot be conv
 a posting that could not be scraped or came back empty, and an output pattern that
 resolves to an unsafe path.
 
-An audit failure is **not** an error. Sira reports the failure, still writes the
-report, and exits `0`.
+**An audit failure is not an error, and exit code `0` does not mean you got a resume.**
+The auditor's verdict decides which files are written:
+
+| Audit | Exit code | Resume `.md` / `.pdf` / `.docx` | `_report.md` |
+| --- | :-: | :-: | :-: |
+| passed | `0` | written | written |
+| failed | `0` | **not written** | written |
+
+On a failed audit Sira prints the auditor's feedback and the report, and stops there —
+it will not hand you a resume it believes contains invented facts. Read the report's
+**Audit Summary**, then fix it with [`re-tailor`](#re-tailor) or rerun with more
+attempts. Script accordingly: check that the resume file exists rather than trusting
+the exit code alone.
