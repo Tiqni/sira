@@ -43,3 +43,26 @@ jobs:
         with:
           pytest-coverage-path: ./pytest-coverage.txt
           junitxml-path: ./pytest.xml
+
+  docs:
+    # Same check the Docs workflow runs before publishing, so a broken site is
+    # caught on the pull request instead of on main after the merge.
+    runs-on: ubuntu-latest
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.13"
+          enable-cache: true
+
+      - name: Install docs dependencies
+        run: uv sync --group docs
+
+      - name: Build the docs site
+        # --strict turns a dead reference or an unresolvable snippet into a
+        # failure rather than a warning nobody reads.
+        run: uv run mkdocs build --strict

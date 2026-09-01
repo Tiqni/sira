@@ -55,6 +55,15 @@ dev = [
     "pytest-subtests>=0.13.0",
     "ruff>=0.14.6",
 ]
+# Documentation site (mkdocs-material). Kept in its own group so `uv sync`
+# for day-to-day work does not pull it in; CI installs it with
+# `uv sync --group docs`.
+docs = [
+    # Capped below 2.0: MkDocs 2.0 drops the plugin system with no migration
+    # path, which would break mkdocs-material and the docs build outright.
+    "mkdocs>=1.6,<2",
+    "mkdocs-material>=9.5,<10",
+]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
