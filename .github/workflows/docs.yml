@@ -1,0 +1,62 @@
+name: Docs
+
+# Publishes the MkDocs site to GitHub Pages.
+#
+# Requires a one-time manual setting: Settings -> Pages -> Source = "GitHub Actions".
+# Until that is set, `deploy` fails with an opaque error even though `build`
+# succeeds, and every https://tiqni.github.io/sira/... link stays dead.
+
+on:
+  push:
+    branches: [main]
+  # Allows a redeploy without a code change.
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# One deploy at a time, and never cancel one mid-flight: a cancelled deploy can
+# leave Pages serving a half-uploaded artifact.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.13"
+          enable-cache: true
+
+      - name: Install docs dependencies
+        run: uv sync --group docs
+
+      - name: Build the site
+        # --strict turns a dead link or an unresolvable snippet into a failed
+        # build rather than a warning nobody reads.
+        run: uv run mkdocs build --strict
+
+      - uses: actions/configure-pages@v5
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

@@ -1,0 +1,86 @@
+site_name: Sira
+site_description: Multi-agent AI that tailors your resume to a job posting without inventing facts.
+site_url: https://tiqni.github.io/sira/
+repo_url: https://github.com/Tiqni/sira
+repo_name: Tiqni/sira
+edit_uri: edit/main/docs/
+copyright: MIT licensed. Built with MkDocs Material.
+
+validation:
+  # A link to a page that does not exist, or an anchor that does not exist,
+  # becomes a warning -- and `mkdocs build --strict` turns warnings into a
+  # failed CI job. That is the point: dead docs links never reach the site.
+  omitted_files: warn
+  absolute_links: warn
+  unrecognized_links: warn
+  anchors: warn
+
+theme:
+  name: material
+  language: en
+  icon:
+    repo: fontawesome/brands/github
+  features:
+    - navigation.sections
+    - navigation.top
+    - navigation.tracking
+    - content.code.copy
+    - content.action.edit
+    - search.highlight
+    - search.suggest
+    - toc.follow
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: teal
+      accent: teal
+      toggle:
+        icon: material/weather-night
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: teal
+      accent: teal
+      toggle:
+        icon: material/weather-sunny
+        name: Switch to light mode
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - tables
+  - toc:
+      permalink: true
+  - pymdownx.details
+  # `custom_fences` routes ```mermaid blocks to Material's built-in Mermaid
+  # support, which loads mermaid.js and renders the diagram client-side.
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+  - pymdownx.tabbed:
+      alternate_style: true
+  # base_path reaches the repository root so docs pages can include root-level
+  # files (ARCHITECTURE.md, CHANGELOG.md) instead of duplicating them here.
+  # check_paths turns a missing include into a build error, not a silent gap.
+  - pymdownx.snippets:
+      base_path: ["."]
+      check_paths: true
+
+nav:
+  - Home: index.md
+  - Getting started: getting-started.md
+  - User guide:
+      - CLI reference: cli.md
+      - Models and providers: models.md
+      - Output and reports: output.md
+      - Resume memory: memory.md
+      - Troubleshooting: troubleshooting.md
+  - Developer guide:
+      - Contributing: contributing.md
+      - Project layout: project-layout.md
+      - Agent reference: agents.md
+      - Extending Sira: extending.md
+      - Architecture: architecture.md
+  - Changelog: changelog.md

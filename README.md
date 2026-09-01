@@ -4,6 +4,8 @@
 
 Sira is a multi-agent AI system that analyzes job postings and tailors your resume to match specific job requirements. It ensures authenticity, avoids AI clichés, and optimizes for Applicant Tracking Systems (ATS).
 
+📚 **[Read the documentation →](https://tiqni.github.io/sira/)** — user guide, CLI reference, architecture, and developer guide.
+
 > **Sira** (سيرة) is the Arabic word for a life story. *Sīra dhātiyya* (سيرة ذاتية) is the term for a curriculum vitae — the story you tell about your own work.
 
 ## 🚀 Features
@@ -15,7 +17,7 @@ Sira is a multi-agent AI system that analyzes job postings and tailors your resu
 - **Hallucination & Cliché Detection**: Built-in auditor to ensure quality and "human" tone.
 - **Quality Gate Validators**: Core pipeline agents' output is scored 0–10 by a quality gate before the pipeline proceeds.
 - **Comprehensive Reporting**: Generates self-review reports with gaps analysis, suggestions, and recommendations.
-- **Self-Correcting Workflow**: Write → Review → Audit loop with retries and quality feedback (up to 3 write attempts).
+- **Self-Correcting Workflow**: Write → Review → Audit loop with retries and quality feedback (defaults: 2 write attempts × 1 review iteration, both configurable).
 - **Re-Tailoring**: Re-run tailoring on a saved job with recommendations from a prior audit (`re-tailor` command).
 
 ## 🛠️ Architecture
@@ -24,28 +26,31 @@ The system runs a sequential pipeline with an inner refinement loop:
 
 **Stage 0 — Job Scraper**: Fetches job posting content from any public URL using Playwright and converts HTML to Markdown (multi-strategy fallback: markitdown → html2text).
 
-**Stage 1 — Resume Parser**: Parses your resume (Markdown, DOCX, or PDF) into a structured `CV` object → Quality gate validates parsing.
+**Stage 1 — Resume Parser**: Parses your resume (Markdown, DOCX, or PDF) into a structured `CV` object. Not quality-gated — the parse is cached by content hash instead.
 
-**Stage 2 — Job Analyst**: Extracts structured job requirements (title, company, skills, keywords) from the scraped posting → Quality gate validates extraction.
+**Stage 2 — Job Analyst**: Extracts structured job requirements (title, company, skills, keywords) from the scraped posting. Not quality-gated.
 
-**Stages 3–5 — Write → Review → Audit Loop** (outer loop, up to 3 write attempts):
+On a cold cache these two stages run **concurrently**.
+
+**Stages 3–5 — Write → Review → Audit Loop** (outer loop, `--write-attempts`, default 2):
 
 | Stage     | Agent     | Description                                                                                                                                                   |
 | --------- | --------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | 3. Write  | CV Writer | Tailors the CV to match job requirements → Quality gate validates tailoring                                                                                   |
-| 4. Review | Reviewer  | Scores CV quality and suggests improvements; triggers refinement loop (up to 3 review iterations per write attempt)                                           |
+| 4. Review | Reviewer  | Scores CV quality and suggests improvements; triggers the refinement loop (`--review-iterations`, default 1, per write attempt)                                |
 | 5. Audit  | Auditor   | Checks for hallucinations and AI clichés → Quality gate validates audit quality. If audit fails, the entire Write → Review → Audit loop retries from stage 3. |
 
 **Stage 6 — Report Generator**: Compiles a self-review report with CVDiff, gap analysis, and recommendations.
 
-**Quality Gate System**: Core pipeline agents have built-in validators that check output quality (scored 0–10). If the score falls below the gate threshold (`--gate-threshold`, default 6), the agent retries with corrective feedback. On quality gate exhaustion, the system falls back to the last available output (graceful degradation) instead of failing fatally.
+**Quality Gate System**: The CV Writer and the Auditor have validators that score their output 0–10 with a shared quality-gate agent. If the score falls below the gate threshold (`--gate-threshold`, default 6), the agent retries with corrective feedback. On quality gate exhaustion, the system falls back to the last available output (graceful degradation) instead of failing fatally. Disable it entirely with `--no-quality-gate`.
 
-**Write → Review → Audit Loop**: After the initial write, the reviewer scores the draft and suggests refinements (up to 3 review iterations). Once review iterations are exhausted, the auditor checks for hallucinations. If the audit fails, the entire write → review → audit loop retries (up to 3 write attempts total).
+**Write → Review → Audit Loop**: After the initial write, the reviewer scores the draft and suggests refinements. Once review iterations are exhausted, the auditor checks for hallucinations. If the audit fails, the entire write → review → audit loop retries. Both limits are flags: `--write-attempts` (default 2) and `--review-iterations` (default 1).
 
 ## 📋 Prerequisites
 
 - **Python 3.13+**
 - **[uv](https://github.com/astral-sh/uv)** (Fast Python package installer and resolver)
+- **A Chromium browser for Playwright** — installed once with `uv run playwright install chromium`
 - **LLM Provider API Key** — OpenAI by default; many providers supported (see [LLM Providers](#-llm-providers))
 
 ## 📦 Installation
@@ -64,7 +69,15 @@ The system runs a sequential pipeline with an inner refinement loop:
     uv sync
     ```
 
-3.  **Set up Environment Variables**:
+3.  **Install the browser Playwright drives**:
+    The job scraper runs a real headless Chromium. The browser binary is a separate
+    download from the Python package:
+
+    ```bash
+    uv run playwright install chromium
+    ```
+
+4.  **Set up Environment Variables**:
     Export your API key for the LLM provider you plan to use:
 
     ```bash
@@ -153,6 +166,7 @@ uv run sira tailor <JOB_URL> <RESUME_PATH> [OPTIONS]
 - `--model MODEL` — LLM provider and model in `provider:model` format (default: `openai:gpt-5-mini`). See [LLM Providers](#-llm-providers) for all supported options.
 - `--verbose` / `-v` — Stream agent thinking and prompts in real-time
 - `--debug` / `-d` — Enable debug output and save the converted resume markdown
+- `--interactive` / `-i` — Pause at quality checkpoints (audit failure, weak match) and ask whether to continue, give feedback and retry, or quit. Skipped automatically when stdin is not a terminal.
 - `--output-pattern TEMPLATE` — Template for job-specific subdirectory name (default: `{company_name}-{job_title}`)
 - `--resume-name-pattern TEMPLATE` — Template for resume file base name (default: `{company_name}-{full_name}`)
 
@@ -183,6 +197,7 @@ uv run sira re-tailor <JOB_ID> <RECOMMENDATIONS> [OPTIONS]
 - `--model MODEL` — AI model override
 - `--verbose` / `-v` — Stream agent thinking and prompts in real-time
 - `--debug` / `-d` — Enable debug output and save the converted resume markdown
+- `--interactive` / `-i` — Pause at quality checkpoints (audit failure, weak match) and ask whether to continue, give feedback and retry, or quit. Skipped automatically when stdin is not a terminal.
 - `--output-pattern TEMPLATE` — Template for job-specific subdirectory name (default: `{company_name}-{job_title}`)
 - `--resume-name-pattern TEMPLATE` — Template for resume file base name (default: `{company_name}-{full_name}`)
 
@@ -257,7 +272,7 @@ Use `--resume-name-pattern` to customize the base filename (default: `{company_n
 - **Content-hash caching**: If your resume file hasn't changed since the last run, the pre-parsed `CV` is reused — no LLM parsing call is made, saving time and cost.
 - Every job submission starts from the original resume, never from a previous tailored resume.
 - Each successful tailoring run stores the tailored resume and audit result linked back to the original source resume.
-- The local memory database lives at `files/resume_memory.sqlite3`.
+- The local memory database lives at `memory/resume_memory.sqlite3`, relative to the directory you run `sira` from.
 - When running `re-tailor`, if the original resume file no longer exists on disk at its recorded path, you must provide `--resume-path` to restore the link.
 
 ## 📊 Self-Review Report
@@ -274,12 +289,15 @@ Each workflow run generates a **self-review report** that includes:
 
 ## ✅ Quality Gate System
 
-The system includes built-in quality validation for every agent:
+A shared `quality_gate_agent` scores other agents' output:
 
-- **Validation Threshold**: Core pipeline agents' output must score 9/10 or higher to proceed
-- **Automatic Retry**: If validation fails, the agent receives corrective feedback and retries. Retry counts are agent-specific: quality-gated agents are currently configured with `retries=5`, while the job scraper uses `retries=3`.
-- **Graceful Fallback**: On quality gate exhaustion, the system uses the last available output instead of failing fatally
-- **Token Usage Tracking**: All validation runs are included in usage metrics for accurate cost tracking
+- **Advisory, not blocking**: output is scored once, 0–10. An agent is re-run only when its score is below `--gate-threshold` (default 6).
+- **Automatic retry**: a below-threshold score raises a retry carrying the concrete improvements the gate asked for. Retry counts are set per agent in `workflows/agents.py` — they are not uniform.
+- **Graceful fallback**: when retries are exhausted, the last available output is used instead of failing the run.
+- **Token usage tracking**: gate runs count toward usage metrics, so cost reporting stays accurate.
+- **Optional**: `--no-quality-gate` removes the scoring calls entirely.
+
+Full detail: [Agent reference](https://tiqni.github.io/sira/agents/).
 
 ## 🛠️ Make Commands
 
@@ -347,6 +365,19 @@ sira/
 Contributions are welcome! Please ensure you follow the coding guidelines and add tests for new features.
 
 ## 📖 Further Reading
+
+**[The documentation site](https://tiqni.github.io/sira/)** is the full reference:
+
+- [Getting started](https://tiqni.github.io/sira/getting-started/) — install and first run
+- [CLI reference](https://tiqni.github.io/sira/cli/) — every command and flag
+- [Models and providers](https://tiqni.github.io/sira/models/) — provider table, Ollama, cost control
+- [Output and reports](https://tiqni.github.io/sira/output/) — the generated files and how to read the report
+- [Resume memory](https://tiqni.github.io/sira/memory/) — what is stored on disk, and the parse cache
+- [Troubleshooting](https://tiqni.github.io/sira/troubleshooting/) — errors and what to do about them
+- [Contributing](https://tiqni.github.io/sira/contributing/) — development setup, tests, commits, releases
+- [Architecture](https://tiqni.github.io/sira/architecture/) — the full system design
+
+In this repository:
 
 - **[ARCHITECTURE.md](./ARCHITECTURE.md)** — Detailed system architecture, data flow, quality gate system, and design decisions
 - **[AGENTS.md](./AGENTS.md)** — Agent development guide with conventions, tool invocation, and testing patterns
