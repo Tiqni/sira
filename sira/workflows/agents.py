@@ -18,7 +18,7 @@ from pydantic_ai.messages import TextPartDelta, ThinkingPartDelta
 from pydantic_ai.models import infer_model
 from pydantic_ai.models.openai import OpenAIChatModel
 from pydantic_ai.providers.openai import OpenAIProvider
-from pydantic_ai.usage import Usage, UsageLimits
+from pydantic_ai.usage import RunUsage, UsageLimits
 from rich.console import Console
 
 from sira.models.agents.output import (
@@ -56,7 +56,7 @@ async def run_agent(
     *,
     verbose: bool = False,  # retained for call-site compatibility; reporter drives streaming
     agent_label: str = "",
-    usage: Usage | None = None,
+    usage: RunUsage | None = None,
     usage_limits: UsageLimits | None = None,
     model: str | None = None,
 ) -> AgentRunResult:
