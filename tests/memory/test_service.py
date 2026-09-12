@@ -548,6 +548,7 @@ def test_parser_raises_when_agent_returns_no_output(
             resume_parser_agent=_FakeAgent(),
             _parser_qs=SimpleNamespace(last_output=None),
             resolve_model=lambda label: None,
+            normalize_model_name=lambda name: name,
         ),
     )
 
@@ -573,6 +574,7 @@ def test_parser_raises_when_agent_returns_invalid_output_type(
             resume_parser_agent=_FakeAgent(),
             _parser_qs=SimpleNamespace(last_output=None),
             resolve_model=lambda label: None,
+            normalize_model_name=lambda name: name,
         ),
     )
 

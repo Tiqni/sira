@@ -31,6 +31,12 @@ from sira.models.agents.output import (
 )
 from sira.reporting.base import get_active_reporter
 
+import pydantic_ai
+
+# pydantic-ai 2.x prints a first-run banner to stderr; it would land inside the
+# Rich live dashboard. Sira owns its own output, so turn it off at import.
+pydantic_ai.BANNER_ENABLED = False
+
 logger = logging.getLogger(__name__)
 _console = Console()
 
@@ -66,7 +72,7 @@ async def run_agent(
     run_kwargs: dict[str, Any] = {"usage": usage, "usage_limits": usage_limits}
     resolved = model if model is not None else resolve_model(agent_label)
     if resolved is not None:
-        run_kwargs["model"] = resolved
+        run_kwargs["model"] = normalize_model_name(resolved)
 
     _safe_report(reporter.agent_start, agent_label, prompt)
     start = time.monotonic()
@@ -143,6 +149,21 @@ _writer_qs = _QualityState()
 _auditor_qs = _QualityState()
 _cover_qs = _QualityState()
 
+
+def normalize_model_name(name: str | None) -> str | None:
+    """Map the bare ``openai:`` prefix to ``openai-chat:`` for pydantic-ai.
+
+    pydantic-ai 2.x resolves ``openai:<model>`` to the OpenAI Responses API,
+    which stores requests on OpenAI's side by default. Sira has always used
+    the Chat Completions API, so keep that behavior. Users who want the
+    Responses API can pass ``openai-responses:<model>`` explicitly. The
+    user-visible model name (``get_model()``, logs) is never changed.
+    """
+    if name is not None and name.startswith("openai:"):
+        return "openai-chat:" + name.removeprefix("openai:")
+    return name
+
+
 MODEL_NAME = "openai:gpt-5-mini"
 _original_model = MODEL_NAME
 
@@ -161,7 +182,7 @@ def _build_default_model() -> Any:
     in which case OpenAI returns a clear authentication error.
     """
     if os.environ.get("OPENAI_API_KEY"):
-        return infer_model(MODEL_NAME)
+        return infer_model(normalize_model_name(MODEL_NAME))
     # No key: build the OpenAI default with a placeholder so import never fails.
     _bare_name = MODEL_NAME.partition(":")[2] or MODEL_NAME
     return OpenAIChatModel(

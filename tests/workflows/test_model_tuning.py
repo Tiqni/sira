@@ -35,7 +35,7 @@ async def test_run_agent_passes_resolved_model():
         with use_reporter(RecordingReporter()):
             await run_agent(agent, "p", agent_label="Parser")
         _, kwargs = agent.run.call_args
-        assert kwargs["model"] == "openai:gpt-5-nano"
+        assert kwargs["model"] == "openai-chat:gpt-5-nano"
     finally:
         agents_mod.reset_agent_models()
 
@@ -47,7 +47,7 @@ async def test_explicit_model_overrides_resolution():
     with use_reporter(RecordingReporter()):
         await run_agent(agent, "p", agent_label="Parser", model="openai:custom")
     _, kwargs = agent.run.call_args
-    assert kwargs["model"] == "openai:custom"
+    assert kwargs["model"] == "openai-chat:custom"
 
 
 def test_set_model_alone_does_not_mispin_agents():

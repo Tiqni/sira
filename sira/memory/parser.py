@@ -95,13 +95,14 @@ class PydanticAIResumeParser(ResumeParserAdapter):
         from pydantic_ai.exceptions import UnexpectedModelBehavior  # noqa: PLC0415
         from sira.workflows.agents import (  # noqa: PLC0415
             _parser_qs,
+            normalize_model_name,
             resolve_model,
             resume_parser_agent,
         )
 
         try:
             result = resume_parser_agent.run_sync(
-                content, model=resolve_model("Parser")
+                content, model=normalize_model_name(resolve_model("Parser"))
             )
             return self._validate_output(result.output)
         except UnexpectedModelBehavior:
@@ -130,13 +131,14 @@ class PydanticAIResumeParser(ResumeParserAdapter):
         from pydantic_ai.exceptions import UnexpectedModelBehavior  # noqa: PLC0415
         from sira.workflows.agents import (  # noqa: PLC0415
             _parser_qs,
+            normalize_model_name,
             resolve_model,
             resume_parser_agent,
         )
 
         try:
             result = await resume_parser_agent.run(
-                content, model=resolve_model("Parser")
+                content, model=normalize_model_name(resolve_model("Parser"))
             )
             return self._validate_output(result.output)
         except UnexpectedModelBehavior:
