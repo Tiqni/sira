@@ -3,7 +3,8 @@
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-from pydantic_ai import Agent
+from pydantic_ai import Agent, AgentRunResultEvent, PartDeltaEvent
+from pydantic_ai.messages import TextPartDelta
 
 from sira.reporting.base import use_reporter
 from sira.workflows.agents import run_agent
@@ -22,6 +23,20 @@ class _AsyncIter:
             return next(self._items)
         except StopIteration:
             raise StopAsyncIteration
+
+
+class _AsyncCM:
+    """Stand-in for the async context manager returned by run_stream_events()
+    in pydantic-ai v2: entering it yields the event iterator."""
+
+    def __init__(self, events):
+        self._events = events
+
+    async def __aenter__(self):
+        return _AsyncIter(self._events)
+
+    async def __aexit__(self, *exc):
+        return False
 
 
 class TestRunAgentNonStreaming:
@@ -54,22 +69,45 @@ class TestRunAgentNonStreaming:
 
 class TestRunAgentStreaming:
     @pytest.mark.anyio
-    async def test_emits_start_and_done_when_streaming(self):
+    async def test_streams_tokens_and_returns_final_result_without_fallback(self):
         agent = MagicMock(spec=Agent)
-        agent.run_stream_events = MagicMock(return_value=_AsyncIter([]))
-        agent.run = AsyncMock(return_value=MagicMock())
+        expected = MagicMock()
+        final = MagicMock(spec=AgentRunResultEvent)
+        final.result = expected
+        delta = PartDeltaEvent(index=0, delta=TextPartDelta(content_delta="hi"))
+        agent.run_stream_events = MagicMock(return_value=_AsyncCM([delta, final]))
+        agent.run = AsyncMock()
 
         rec = RecordingReporter()
         rec.wants_tokens = True
         with use_reporter(rec):
-            await run_agent(agent, "prompt", agent_label="Writer")
+            result = await run_agent(agent, "prompt", agent_label="Writer")
 
         agent.run_stream_events.assert_called_once_with(
             "prompt", usage=None, usage_limits=None
         )
+        assert result is expected
+        agent.run.assert_not_awaited()  # the stream delivered the result
+        assert ("token", "Writer", "hi", "output") in rec.events
         kinds = [e[0] for e in rec.events]
         assert kinds[0] == "agent_start"
-        assert "agent_done" in kinds
+        assert kinds[-1] == "agent_done"
+        assert "note" not in kinds  # note() is only emitted on stream failure
+
+    @pytest.mark.anyio
+    async def test_runs_agent_when_stream_ends_without_result(self):
+        agent = MagicMock(spec=Agent)
+        expected = MagicMock()
+        agent.run_stream_events = MagicMock(return_value=_AsyncCM([]))
+        agent.run = AsyncMock(return_value=expected)
+
+        rec = RecordingReporter()
+        rec.wants_tokens = True
+        with use_reporter(rec):
+            result = await run_agent(agent, "prompt", agent_label="Writer")
+
+        assert result is expected
+        agent.run.assert_awaited_once()
 
 
 class TestRunAgentFallback:
@@ -79,7 +117,7 @@ class TestRunAgentFallback:
         fallback = MagicMock()
         agent.run = AsyncMock(return_value=fallback)
         bad = MagicMock()
-        bad.__aiter__ = MagicMock(side_effect=RuntimeError("boom"))
+        bad.__aenter__ = AsyncMock(side_effect=RuntimeError("boom"))
         agent.run_stream_events = MagicMock(return_value=bad)
 
         rec = RecordingReporter()
@@ -89,3 +127,6 @@ class TestRunAgentFallback:
 
         assert result is fallback
         agent.run.assert_awaited_once()
+        assert ("note", "Stream interrupted for [Writer], falling back...") in (
+            rec.events
+        )

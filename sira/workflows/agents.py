@@ -84,21 +84,27 @@ async def run_agent(
 
     try:
         result = None
-        async for event in agent.run_stream_events(prompt, **run_kwargs):
-            if isinstance(event, AgentRunResultEvent):
-                result = event.result
-            elif isinstance(event, PartDeltaEvent):
-                if isinstance(event.delta, TextPartDelta):
-                    _safe_report(
-                        reporter.token, agent_label, event.delta.content_delta, "output"
-                    )
-                elif isinstance(event.delta, ThinkingPartDelta):
-                    _safe_report(
-                        reporter.token,
-                        agent_label,
-                        event.delta.content_delta,
-                        "thinking",
-                    )
+        # pydantic-ai v2: run_stream_events() must be used as an async context
+        # manager so the background run task is cleaned up if we stop early.
+        async with agent.run_stream_events(prompt, **run_kwargs) as events:
+            async for event in events:
+                if isinstance(event, AgentRunResultEvent):
+                    result = event.result
+                elif isinstance(event, PartDeltaEvent):
+                    if isinstance(event.delta, TextPartDelta):
+                        _safe_report(
+                            reporter.token,
+                            agent_label,
+                            event.delta.content_delta,
+                            "output",
+                        )
+                    elif isinstance(event.delta, ThinkingPartDelta):
+                        _safe_report(
+                            reporter.token,
+                            agent_label,
+                            event.delta.content_delta,
+                            "thinking",
+                        )
 
         if result is None:
             result = await agent.run(prompt, **run_kwargs)
