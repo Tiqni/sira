@@ -32,7 +32,7 @@ dependencies = [
 [project.optional-dependencies]
 # xAI moved to the native `xai-sdk` in pydantic-ai 2.x. That SDK pins
 # `packaging<26`, which conflicts with the `commitizen` dev tool, so xAI
-# support is an opt-in extra: `uv tool install 'sira[xai]'`.
+# support is an opt-in extra: `uv sync --extra xai --no-dev`.
 xai = ["pydantic-ai[xai]>=2.43,<3"]
 
 [project.scripts]
