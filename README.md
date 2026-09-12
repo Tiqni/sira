@@ -112,11 +112,11 @@ uv run sira tailor <JOB_URL> <RESUME_PATH> --model anthropic:claude-sonnet-4-5
 | [Groq](https://console.groq.com)                               | `groq:`         | `groq:llama-3.3-70b-versatile`        | `GROQ_API_KEY`       |
 | [Mistral](https://console.mistral.ai)                          | `mistral:`      | `mistral:mistral-large-latest`        | `MISTRAL_API_KEY`    |
 | [xAI](https://x.ai/api)                                        | `xai:`          | `xai:grok-3-mini`                     | `XAI_API_KEY` — needs the `sira[xai]` extra (see tip) |
-| [Cohere](https://dashboard.cohere.com)                         | `cohere:`       | `cohere:command-r-plus`               | `COHERE_API_KEY`     |
+| [Cohere](https://dashboard.cohere.com)                         | `cohere:`       | `cohere:command-r-plus`               | `CO_API_KEY`         |
 | [DeepSeek](https://platform.deepseek.com)                      | `deepseek:`     | `deepseek:deepseek-chat`              | `DEEPSEEK_API_KEY`   |
 | [OpenRouter](https://openrouter.ai)                            | `openrouter:`   | `openrouter:openai/gpt-4o`            | `OPENROUTER_API_KEY` |
 | [Ollama](https://ollama.com) (local)                           | `ollama:`       | `ollama:llama3`                       | `OLLAMA_BASE_URL`    |
-| [GitHub Models](https://github.com/marketplace/models)         | `github:`       | `github:xai/grok-3-mini`              | `GITHUB_API_KEY`     |
+| [GitHub Models](https://github.com/marketplace/models)         | `github:`       | `github:xai/grok-3-mini`              | `GITHUB_API_KEY` — retired by GitHub on 2026-07-30; removed in pydantic-ai v3 |
 | [Cerebras](https://cloud.cerebras.ai)                          | `cerebras:`     | `cerebras:llama3.1-8b`                | `CEREBRAS_API_KEY`   |
 | [AWS Bedrock](https://aws.amazon.com/bedrock)                  | `bedrock:`      | `bedrock:anthropic.claude-sonnet-4-5` | AWS credentials      |
 

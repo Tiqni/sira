@@ -176,6 +176,7 @@ async def run_agent(
     agent_label: str = "",
     usage: RunUsage | None = None,
     usage_limits: UsageLimits | None = None,
+    model: str | None = None,
 ) -> AgentRunResult: ...
 ```
 
