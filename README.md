@@ -120,7 +120,7 @@ uv run sira tailor <JOB_URL> <RESUME_PATH> --model anthropic:claude-sonnet-4-5
 | [Cerebras](https://cloud.cerebras.ai)                          | `cerebras:`     | `cerebras:llama3.1-8b`                | `CEREBRAS_API_KEY`   |
 | [AWS Bedrock](https://aws.amazon.com/bedrock)                  | `bedrock:`      | `bedrock:anthropic.claude-sonnet-4-5` | AWS credentials      |
 
-> **💡 Tip:** PydanticAI resolves the model class, provider, and profile automatically from the `<provider>:<model>` string. Every provider above works out of the box except xAI: pydantic-ai 2.x uses the native `xai-sdk`, which cannot be installed together with Sira's dev tools, so it is an opt-in extra — install with `uv sync --extra xai --no-dev` instead of plain `uv sync`.
+> **💡 Tip:** PydanticAI resolves the model class, provider, and profile automatically from the `<provider>:<model>` string. Every provider above works out of the box except the retired GitHub Models and xAI: pydantic-ai 2.x uses the native `xai-sdk`, which cannot be installed together with Sira's dev tools, so it is an opt-in extra — install with `uv sync --extra xai --no-dev` instead of plain `uv sync`.
 
 ### Using a Local Model (Ollama)
 
