@@ -305,6 +305,7 @@ sira.tailor (workflow, id = run id)
 - DBOS only continues a run under the same executor id and application version. Sira uses a fresh executor id per process, so a new `sira tailor` never silently picks up an old run; continuation is explicit (`sira resume`) and pinned to the installed Sira version.
 - Continuation (`sira/workflows/continuation.py`): interrupted runs are resumed in place; failed runs are forked from the failed step (or the start of a failed child workflow, or the last checkpoint when the user aborted), which creates a new run id with the earlier checkpoints copied.
 - The system database is SQLite at `memory/dbos.sqlite3` (`SIRA_DBOS_DATABASE_URL` overrides it). Post-processing (output files, memory save) stays outside the workflow and is repeated by `resume`.
+- Every model request is now made in streaming mode (the durability capability attaches an event-stream handler), including non-interactive runs.
 
 ---
 

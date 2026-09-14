@@ -64,6 +64,12 @@ virtual environment during design):
   `x-mlflow-experiment-id=<id>`. Opik accepts OTLP at
   `<host>/api/v1/private/otel`. Logfire accepts OTLP at
   `https://logfire-api.pydantic.dev` with `Authorization=<token>`.
+- `DBOS.resume_workflow_async` does not cascade to child workflows: a parent
+  interrupted while a child was in flight must have that child resumed first,
+  or the resumed parent waits forever.
+- Every async DBOS call binds DBOS's thread pool as the running loop's
+  default executor and `DBOS.destroy()` shuts it down, so the runtime must be
+  entered outside `asyncio.run`.
 
 ## 4. PR 1 — `build!: upgrade pydantic-ai to 2.x`
 
@@ -112,7 +118,7 @@ fix needs one.
     after re-installing the same version still matches.
   - `system_database_url = db_url or os.environ.get("SIRA_DBOS_DATABASE_URL") or "sqlite:///memory/dbos.sqlite3"`
   - `executor_id=str(uuid.uuid4())` — unique per process.
-  - `run_admin_server=False`, `log_level="WARNING"`.
+  - `run_admin_server=False`, `log_level="CRITICAL"` (DBOS logs a full traceback at ERROR when a workflow fails; the CLI reports failures itself).
   - When `tracing` is true (PR 3): `enable_otlp=True`,
     `otel_attribute_format="semconv"`, **no** `otlp_traces_endpoints`.
 - `launch_dbos()` → `DBOS.launch()`; `shutdown_dbos()` → `DBOS.destroy()`.
@@ -148,6 +154,9 @@ to re-run the preset. `RunMetadata.job_id` marks a re-tailor run.
 - `ResumeTailorWorkflow.run()` keeps its signature and delegates to
   `tailor_workflow` (tests keep calling `run()`; the reporter is installed via
   `use_reporter` around the call and is **not** a workflow input).
+- `run_durable` requires an active DBOS runtime and raises `RuntimeError`
+  otherwise; the CLI enters `durable_runtime()` in the synchronous command
+  layer, around `asyncio.run`.
 - Parser and Analyst become child workflows
   `@DBOS.workflow(name="sira.parse_resume")` and `"sira.analyze_job"`
   (module-level functions taking primitives: text, `max_retries`). Started

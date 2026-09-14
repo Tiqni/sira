@@ -93,6 +93,8 @@ Behaviour by run state:
 | Aborted at a checkpoint | Forked at that checkpoint; the question is asked again. |
 | Started by another Sira version | Refused — start a new run. |
 
+Run state lives in `memory/dbos.sqlite3` (see the privacy note in the README); each Sira release invalidates older runs, and `resume` refuses them.
+
 ## `runs`
 
 List recent runs with their status, job, start time, and duration.
