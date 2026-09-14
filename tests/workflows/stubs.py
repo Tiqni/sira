@@ -8,11 +8,11 @@ import asyncio
 
 from sira.models.agents.output import (
     AuditResult,
-    CVDiff,
-    FinalReport,
-    GapAnalysis,
     JobAnalysis,
+    ReportNarrative,
     ReviewResult,
+    SkillMatch,
+    SkillMatchResult,
 )
 
 
@@ -48,8 +48,12 @@ def install_pipeline_stubs(
     ``*_cancel_first`` raise ``asyncio.CancelledError`` on that agent's first
     call — the shape of a Ctrl+C mid-stage (DBOS leaves the run PENDING).
     ``*_fail_on_call`` raise ``RuntimeError`` on that call number.
-    ``report_weak_first`` makes the first report "Weak Match" (triggers the
-    interactive checkpoint) and later reports "Strong Match".
+    ``report_weak_first`` makes the skill matcher cover nothing on its first
+    real CALL (score 30 → "Weak Match", triggers the interactive checkpoint)
+    and everything on every real call afterwards ("Strong Match"). Since
+    ``match_skills`` runs at most once per run, a continued run only reaches
+    a second real call when it is forked (a fresh invocation of the workflow
+    function, which calls the matcher again).
     """
     calls = {
         "parser": 0,
@@ -57,6 +61,7 @@ def install_pipeline_stubs(
         "writer": 0,
         "reviewer": 0,
         "auditor": 0,
+        "matcher": 0,
         "report": 0,
     }
 
@@ -73,10 +78,11 @@ def install_pipeline_stubs(
                 job_title="Platform Engineer",
                 company_name="Acme",
                 summary="role",
-                hard_skills=["Python"],
+                # "Python" is in sample_cv (literal hit); the others reach the judge.
+                hard_skills=["Python", "Kubernetes", "Terraform"],
                 soft_skills=["Communication"],
                 key_responsibilities=["Build"],
-                keywords_to_target=["Python"],
+                keywords_to_target=["Python", "Kubernetes"],
             )
         )
 
@@ -117,26 +123,28 @@ def install_pipeline_stubs(
             )
         )
 
+    async def run_matcher(*a, **k):
+        calls["matcher"] += 1
+        covered = not (report_weak_first and calls["matcher"] == 1)
+        skills = k.get("deps") or ()
+        return DummyRunResult(
+            SkillMatchResult(
+                matches=[
+                    SkillMatch(
+                        skill=s, covered=covered, evidence="stub" if covered else ""
+                    )
+                    for s in skills
+                ]
+            )
+        )
+
     async def run_report(*a, **k):
         calls["report"] += 1
-        recommendation = (
-            "Weak Match"
-            if (report_weak_first and calls["report"] == 1)
-            else "Strong Match"
-        )
         return DummyRunResult(
-            FinalReport(
-                job_title="Platform Engineer",
-                company_name="Acme",
-                generated_at="2026-01-01T00:00:00Z",
-                overall_recommendation=recommendation,
-                match_score=90,
-                what_changed=CVDiff(),
-                gaps=GapAnalysis(),
+            ReportNarrative(
                 suggestions_to_strengthen=[],
                 audit_summary="ok",
                 recommendation_rationale="ok",
-                passed=audit_passed,
             )
         )
 
@@ -146,6 +154,7 @@ def install_pipeline_stubs(
         ("writer_agent", run_writer),
         ("reviewer_agent", run_reviewer),
         ("auditor_agent", run_auditor),
+        ("skill_matcher_agent", run_matcher),
         ("report_agent", run_report),
     ]:
         monkeypatch.setattr(f"sira.workflows.agents.{target}.run", fn)

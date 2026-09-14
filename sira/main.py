@@ -14,6 +14,7 @@ import typer
 from dbos import DBOS, SetWorkflowID
 from pydantic import ValidationError
 from rich.console import Console
+from rich.markup import escape
 
 from sira.durability import application_version, durable_runtime
 from sira.memory.parser import PydanticAIResumeParser
@@ -203,6 +204,23 @@ def _print_report_to_console(report: FinalReport) -> None:
         console.print(f"  Soft: {', '.join(gap.missing_soft_skills)}")
     else:
         console.print("  Soft: (none)")
+
+    hard_total = len(gap.covered_hard_skills) + len(gap.missing_hard_skills)
+    soft_total = len(gap.covered_soft_skills) + len(gap.missing_soft_skills)
+    console.print(
+        f"\nSKILLS COVERED — Hard: {len(gap.covered_hard_skills)}/{hard_total} "
+        f"({gap.hard_skill_coverage_percent:.1f}%) · "
+        f"Soft: {len(gap.covered_soft_skills)}/{soft_total} "
+        f"({gap.soft_skill_coverage_percent:.1f}%)"
+    )
+    for skill in (*gap.covered_hard_skills, *gap.covered_soft_skills):
+        quote = gap.skill_evidence.get(skill, "")
+        line = (
+            f'  ✅ {escape(skill)} — "{escape(quote)}"'
+            if quote
+            else f"  ✅ {escape(skill)}"
+        )
+        console.print(line)
 
     console.print("\nSUGGESTIONS TO STRENGTHEN")
     for suggestion in report.suggestions_to_strengthen:

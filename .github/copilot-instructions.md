@@ -51,9 +51,9 @@ Every core pipeline agent has an `@output_validator` that calls the `quality_gat
 
 - Use Pydantic v2 models for all structured data
 - Models defined in `models/agents/output.py` and `models/workflow.py`
-- Key output models: `CV`, `WorkExperience`, `JobAnalysis`, `AuditResult`, `AuditIssue`, `ReviewResult`, `CVDiff`, `ExperienceChange`, `GapAnalysis`, `FinalReport`, `QualityCheckResult`, `ScrapedJobPosting`, `CoverLetter`
+- Key output models: `CV`, `WorkExperience`, `JobAnalysis`, `AuditResult`, `AuditIssue`, `ReviewResult`, `CVDiff`, `ExperienceChange`, `GapAnalysis`, `SkillMatch`, `SkillMatchResult`, `ReportNarrative`, `FinalReport`, `QualityCheckResult`, `ScrapedJobPosting`, `CoverLetter`
 - Workflow result: `ResumeTailorResult` (in `models/workflow.py`)
-- `CVDiff` and `GapAnalysis` are computed in **pure Python** by `utils/cv_diff.py` — not by any LLM agent
+- Skill coverage is decided by `skill_matcher_agent` (one judge call with CV evidence); `GapAnalysis`, `match_score` and the verdict are then computed in **pure Python** by `utils/cv_diff.py` — the report agent only writes prose
 - See `ARCHITECTURE.md` for the full data model reference
 
 ### Anti-Hallucination Rules
@@ -82,14 +82,14 @@ Avoid these terms in generated content:
 - Workflow result: `models/workflow.py` (`ResumeTailorResult`)
 - Tools: `tools/playwright.py` (file reading), `tools/job_scraper_helpers.py` (HTML parsing, placeholder detection)
 - Memory: `memory/service.py` (`ResumeMemoryService`), `memory/sqlite_repository.py`
-- Utils: `utils/cv_diff.py` (pure-Python diff/gap), `utils/resume_converter.py` (DOCX/PDF→MD)
+- Utils: `utils/cv_diff.py` (diff/gap/score), `utils/skill_matching.py` (CV text + literal pre-pass), `utils/resume_converter.py` (DOCX/PDF→MD)
 - Memory DB: `files/resume_memory.sqlite3`
 - Output: `output/<company>-<job>/`
 
 ### Testing
 
 - CLI tests: `tests/test_cli_typer.py`, `tests/test_main.py`
-- Diff/gap analysis: `tests/test_cv_diff.py`
+- Diff/gap analysis: `tests/test_cv_diff.py`, `tests/test_skill_matcher.py`, `tests/test_semantic_match_regression.py`
 - Job scraper: `tests/test_job_scraper_helpers.py`, `tests/test_job_scraper.py`
 - Quality gates: `tests/test_quality_gate.py`, `tests/test_quality_gate_models.py`
 - Resume parsing determinism: `tests/test_parsing_determinism.py`

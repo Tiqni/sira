@@ -170,9 +170,14 @@ System prompts live inline in `sira/workflows/agents.py`. Two rules to preserve:
 
 ## Change the report
 
-`CVDiff` and `GapAnalysis` are computed in `sira/utils/cv_diff.py` in pure Python. Keep
-them that way. The model writes the prose around those numbers; it must not be the one
-deciding which keywords are missing, or the report stops being trustworthy.
+`CVDiff`, `GapAnalysis`, the match score and the verdict are computed in
+`sira/utils/cv_diff.py` in pure Python. Keep them that way. The only model input is
+`skill_matcher_agent` (`sira/workflows/skill_matching.py`), which answers "does the CV
+show this skill?" with a quote; change its prompt if matches are too generous or too
+strict, and change the weights in `compute_match_score` (documented in
+ARCHITECTURE.md) if the score feels off. The report model writes the prose around
+those numbers; it must not be the one deciding them, or the report stops being
+trustworthy.
 
 The Markdown layout lives in `generate_report_markdown()` in
 `sira/utils/markdown_writer.py`, and the terminal version in `_print_report_to_console()`

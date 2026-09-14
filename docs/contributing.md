@@ -177,7 +177,9 @@ Keep these in mind when changing behaviour:
 1. **Authenticity first.** Output must read as written by a person.
 2. **No hallucinations.** Never add information absent from the original CV.
 3. **ATS optimisation.** Work keywords in naturally; never keyword-stuff.
-4. **Deterministic where possible.** The CV diff and gap analysis are pure Python, not
-   model output, so the report cannot flatter the user.
+4. **Deterministic given the skill matcher's answers.** The CV diff, the gap analysis,
+   the match score, and the verdict are pure Python over `skill_matcher_agent`'s
+   per-skill verdicts, not model output themselves, so the report cannot flatter the
+   user by choosing its own numbers.
 5. **Graceful degradation.** When a quality gate is exhausted, fall back to the last
    good output instead of crashing.

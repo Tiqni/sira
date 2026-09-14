@@ -6,7 +6,7 @@ from pydantic_ai.exceptions import UnexpectedModelBehavior
 from pydantic_ai.usage import RunUsage
 
 from sira.durability import is_active
-from sira.models.agents.output import CV, CVDiff, FinalReport, JobAnalysis
+from sira.models.agents.output import CV, CVDiff, FinalReport, JobAnalysis, SkillMatch
 from sira.models.workflow import ResumeTailorResult, RunMetadata, TailorInputs
 from sira.reporting.base import (
     NullReporter,
@@ -14,7 +14,12 @@ from sira.reporting.base import (
     get_active_reporter,
     use_reporter,
 )
-from sira.utils.cv_diff import compute_cv_diff, compute_gap_analysis
+from sira.utils.cv_diff import (
+    compute_cv_diff,
+    compute_gap_analysis,
+    compute_match_score,
+    compute_recommendation,
+)
 from sira.workflows import agents as agents_mod
 from sira.workflows.agents import (
     USAGE_LIMITS,
@@ -32,6 +37,7 @@ from sira.workflows.agents import (
     apply_model_override,
     get_model,
 )
+from sira.workflows.skill_matching import match_skills
 
 # DBOS names. The CLI and tests look these up, so keep them stable.
 TAILOR_WORKFLOW_NAME = "sira.tailor"
@@ -465,6 +471,10 @@ class ResumeTailorWorkflow:
         # --- STEP 2: WRITE + REVIEW + AUDIT LOOP (with optional feedback retry) ---
         user_feedback: str = ""
         feedback_attempts_remaining: int = 1
+        # match_skills's inputs (original CV, job analysis) never change across
+        # Hook 1/Hook 2 feedback loops, so it is computed at most once per run —
+        # every re-entry into the report phase below reuses this result.
+        skill_matches: dict[str, SkillMatch] | None = None
 
         while True:
             new_cv: CV | None = None
@@ -841,12 +851,25 @@ Compare the two structured CVs carefully. Ensure that:
                     if new_cv is not None
                     else CVDiff()
                 )
-                gap_analysis = compute_gap_analysis(original_cv, new_cv, job_analysis)
+                if skill_matches is None:
+                    skill_matches = await match_skills(
+                        original_cv,
+                        job_analysis,
+                        usage=total_usage,
+                        usage_limits=USAGE_LIMITS,
+                    )
+                gap_analysis = compute_gap_analysis(
+                    original_cv, new_cv, job_analysis, skill_matches=skill_matches
+                )
+                match_score = compute_match_score(gap_analysis)
+                recommendation = compute_recommendation(match_score, gap_analysis)
 
                 review_json = review.model_dump_json() if review is not None else "N/A"
                 audit_json = audit.model_dump_json() if audit is not None else "N/A"
 
                 report_prompt = f"""
+Match score: {match_score}/100
+Verdict: {recommendation}
 CV Diff: {cv_diff.model_dump_json()}
 Gap Analysis: {gap_analysis.model_dump_json()}
 Audit Result: {audit_json}
@@ -868,8 +891,8 @@ Job Analysis: {job_data_json}
                     job_title=job_analysis.job_title,
                     company_name=job_analysis.company_name,
                     generated_at=datetime.now(timezone.utc).isoformat(),
-                    overall_recommendation=narrative.overall_recommendation,
-                    match_score=narrative.match_score,
+                    overall_recommendation=recommendation,
+                    match_score=match_score,
                     what_changed=cv_diff,
                     gaps=gap_analysis,
                     suggestions_to_strengthen=narrative.suggestions_to_strengthen,
@@ -885,6 +908,7 @@ Job Analysis: {job_data_json}
                     hook2_details = [
                         f"Match score: {final_report.match_score}/100",
                         f"Keyword coverage: {len(gap.covered_keywords)}/{total_kw} ({gap.keyword_coverage_percent:.1f}%)",
+                        f"Skill coverage: hard {gap.hard_skill_coverage_percent:.1f}% · soft {gap.soft_skill_coverage_percent:.1f}%",
                     ]
                     if gap.missing_hard_skills:
                         hook2_details.append(

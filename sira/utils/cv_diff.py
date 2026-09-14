@@ -1,9 +1,14 @@
-"""Pure-Python utilities for computing CV diffs and gap analysis.
+"""Pure-Python utilities for computing CV diffs, gap analysis, and the match score.
 
-No LLM calls. All comparisons are done on Pydantic model fields directly.
+No LLM calls in this module. Skill coverage decisions arrive as ``SkillMatch``
+values (from the literal pre-pass and the skill matcher agent); everything
+computed here from them is deterministic.
 """
 
 from __future__ import annotations
+
+from collections.abc import Mapping
+from typing import Literal
 
 from sira.models.agents.output import (
     CV,
@@ -11,6 +16,7 @@ from sira.models.agents.output import (
     ExperienceChange,
     GapAnalysis,
     JobAnalysis,
+    SkillMatch,
 )
 
 
@@ -103,10 +109,47 @@ def compute_cv_diff(original: CV, tailored: CV) -> CVDiff:
     )
 
 
+def _percent(covered: int, total: int) -> float:
+    """Coverage as a percentage rounded to one decimal; 0.0 when total is 0."""
+    return round(covered / total * 100.0, 1) if total > 0 else 0.0
+
+
+def _split_skills(
+    skills: list[str],
+    original_skills_lower: set[str],
+    skill_matches: Mapping[str, SkillMatch] | None,
+) -> tuple[list[str], list[str], dict[str, str]]:
+    """Split job skills into (covered, missing, evidence-by-covered-skill).
+
+    With ``skill_matches`` a skill is covered iff its match says so; a skill
+    absent from the mapping is missing. Without it, fall back to exact
+    lowercase equality against the CV's ``skills`` list (evidence stays "").
+    """
+    covered: list[str] = []
+    missing: list[str] = []
+    evidence: dict[str, str] = {}
+    for skill in skills:
+        if skill_matches is None:
+            is_covered = skill.lower() in original_skills_lower
+            quote = ""
+        else:
+            match = skill_matches.get(skill)
+            is_covered = match is not None and match.covered
+            quote = match.evidence if match is not None else ""
+        if is_covered:
+            covered.append(skill)
+            evidence[skill] = quote
+        else:
+            missing.append(skill)
+    return covered, missing, evidence
+
+
 def compute_gap_analysis(
     original: CV,
     tailored: CV | None,
     job: JobAnalysis,
+    *,
+    skill_matches: Mapping[str, SkillMatch] | None = None,
 ) -> GapAnalysis:
     """Compute skill and keyword gaps between the original CV and job requirements.
 
@@ -115,50 +158,118 @@ def compute_gap_analysis(
         tailored: The tailored CV (used for keyword coverage). Pass None if the
                   writer failed — keyword coverage will default to 0%.
         job: Structured job analysis with required skills and ATS keywords.
+        skill_matches: Per-skill verdicts from ``match_skills`` (literal
+                  pre-pass + skill matcher agent), keyed by the skill text as
+                  listed in ``job``. None means literal matching against
+                  ``original.skills`` only (the pre-semantic behaviour).
 
     Returns:
-        GapAnalysis with missing skills and keyword coverage metrics.
+        GapAnalysis with covered/missing skills, evidence, and coverage metrics.
     """
-    # Normalise original skills to lowercase for comparison
     original_skills_lower = {s.lower() for s in original.skills}
 
-    # --- Missing hard/soft skills (from original CV, not tailored) ---
-    missing_hard = [
-        skill for skill in job.hard_skills if skill.lower() not in original_skills_lower
-    ]
-    missing_soft = [
-        skill for skill in job.soft_skills if skill.lower() not in original_skills_lower
-    ]
+    covered_hard, missing_hard, hard_evidence = _split_skills(
+        job.hard_skills, original_skills_lower, skill_matches
+    )
+    covered_soft, missing_soft, soft_evidence = _split_skills(
+        job.soft_skills, original_skills_lower, skill_matches
+    )
+    skill_fields = {
+        "missing_hard_skills": missing_hard,
+        "missing_soft_skills": missing_soft,
+        "covered_hard_skills": covered_hard,
+        "covered_soft_skills": covered_soft,
+        "skill_evidence": {**hard_evidence, **soft_evidence},
+        "hard_skill_coverage_percent": _percent(
+            len(covered_hard), len(job.hard_skills)
+        ),
+        "soft_skill_coverage_percent": _percent(
+            len(covered_soft), len(job.soft_skills)
+        ),
+    }
 
-    # --- Keyword coverage (from tailored CV text) ---
+    # --- Keyword coverage (literal, from tailored CV text — the ATS view) ---
     if tailored is None:
         return GapAnalysis(
-            missing_hard_skills=missing_hard,
-            missing_soft_skills=missing_soft,
+            **skill_fields,
             covered_keywords=[],
             missing_keywords=list(job.keywords_to_target),
             keyword_coverage_percent=0.0,
         )
 
-    # Serialise the entire tailored CV to a single lowercase text blob
     tailored_text = tailored.model_dump_json().lower()
-
-    covered: list[str] = []
-    missing: list[str] = []
-
+    covered_kw: list[str] = []
+    missing_kw: list[str] = []
     for keyword in job.keywords_to_target:
         if keyword.lower() in tailored_text:
-            covered.append(keyword)
+            covered_kw.append(keyword)
         else:
-            missing.append(keyword)
-
-    total = len(job.keywords_to_target)
-    coverage_pct = (len(covered) / total * 100.0) if total > 0 else 0.0
+            missing_kw.append(keyword)
 
     return GapAnalysis(
-        missing_hard_skills=missing_hard,
-        missing_soft_skills=missing_soft,
-        covered_keywords=covered,
-        missing_keywords=missing,
-        keyword_coverage_percent=round(coverage_pct, 1),
+        **skill_fields,
+        covered_keywords=covered_kw,
+        missing_keywords=missing_kw,
+        keyword_coverage_percent=_percent(len(covered_kw), len(job.keywords_to_target)),
     )
+
+
+# ---------------------------------------------------------------------------
+# Match score and recommendation (documented in ARCHITECTURE.md)
+# ---------------------------------------------------------------------------
+
+SCORE_WEIGHT_HARD = 60
+SCORE_WEIGHT_SOFT = 20
+SCORE_WEIGHT_KEYWORDS = 20
+
+STRONG_MATCH_MIN_SCORE = 75
+STRONG_MATCH_MIN_HARD_COVERAGE = 75.0
+PARTIAL_MATCH_MIN_SCORE = 50
+
+Recommendation = Literal["Strong Match", "Partial Match", "Weak Match"]
+
+
+def compute_match_score(gap: GapAnalysis) -> int:
+    """Weighted coverage: hard skills 60, soft skills 20, ATS keywords 20.
+
+    A bucket the job lists nothing for (covered + missing empty) is dropped
+    and the remaining weights are rescaled to keep the score on 0–100. All
+    buckets empty gives 0. Uses Python's built-in ``round`` (half to even).
+    """
+    buckets = (
+        (
+            SCORE_WEIGHT_HARD,
+            gap.hard_skill_coverage_percent,
+            len(gap.covered_hard_skills) + len(gap.missing_hard_skills),
+        ),
+        (
+            SCORE_WEIGHT_SOFT,
+            gap.soft_skill_coverage_percent,
+            len(gap.covered_soft_skills) + len(gap.missing_soft_skills),
+        ),
+        (
+            SCORE_WEIGHT_KEYWORDS,
+            gap.keyword_coverage_percent,
+            len(gap.covered_keywords) + len(gap.missing_keywords),
+        ),
+    )
+    active = [(weight, pct) for weight, pct, total in buckets if total > 0]
+    if not active:
+        return 0
+    weight_sum = sum(weight for weight, _ in active)
+    score = sum(weight * pct for weight, pct in active) / weight_sum
+    return max(0, min(100, round(score)))
+
+
+def compute_recommendation(score: int, gap: GapAnalysis) -> Recommendation:
+    """Verdict from the score, with a hard-skill guard on "Strong Match"."""
+    hard_total = len(gap.covered_hard_skills) + len(gap.missing_hard_skills)
+    hard_ok = (
+        hard_total == 0
+        or gap.hard_skill_coverage_percent >= STRONG_MATCH_MIN_HARD_COVERAGE
+    )
+    if score >= STRONG_MATCH_MIN_SCORE and hard_ok:
+        return "Strong Match"
+    if score >= PARTIAL_MATCH_MIN_SCORE:
+        return "Partial Match"
+    return "Weak Match"

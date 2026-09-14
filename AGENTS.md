@@ -81,9 +81,11 @@ Pattern variables: `{company_name}`, `{job_title}`, `{full_name}`, `{timestamp}`
   - `validate_inputs.py` — Standalone input validation script (not used by the Typer CLI).
   - `resume_converter.py` — Converts DOCX/PDF to Markdown via `markitdown`.
   - `markdown_writer.py` — Generates Markdown output for resumes and reports.
-  - `cv_diff.py` — Computes structural diffs and gap analysis between original and tailored CVs.
+  - `cv_diff.py` — Computes structural diffs, gap analysis, the match score and the verdict (pure Python over the skill matcher's verdicts).
+  - `skill_matching.py` — `render_cv_text` (CV → plain text) and the literal skill pre-pass (`literal_matches`); no model calls.
   - `pdf_converter.py` — PDF creation helpers.
   - `resume_output_converter.py` — Resume output conversion utilities.
+- `sira/workflows/skill_matching.py` — `match_skills`: orchestrates the literal pre-pass, then `skill_matcher_agent` for the remaining skills, falling back to literal-only matching on `AgentRunError`.
 
 ## Architecture
 
@@ -113,18 +115,19 @@ The **Write → Review → Audit** inner loop: after the initial write, the revi
 
 ### Agents Defined (in `workflows/agents.py`)
 
-| Agent                       | Output Type          | Retries | Has Quality Gate                             |
-| --------------------------- | -------------------- | ------- | -------------------------------------------- |
-| `job_scraper_agent`         | `ScrapedJobPosting`  | 3       | No (has `validate_extraction` tool)          |
-| `scraper_agent`             | `JobAnalysis`        | 5       | No (legacy; `job_scraper_agent` used by CLI) |
-| `resume_parser_agent`       | `CV`                 | 5       | Yes                                          |
-| `analyst_agent`             | `JobAnalysis`        | 5       | Yes                                          |
-| `writer_agent`              | `CV`                 | 5       | Yes                                          |
-| `reviewer_agent`            | `ReviewResult`       | 5       | No                                           |
-| `auditor_agent`             | `AuditResult`        | 5       | Yes                                          |
-| `report_agent`              | `FinalReport`        | 5       | No                                           |
-| `cover_letter_writer_agent` | `str`                | 5       | Yes (defined but not wired into workflow)    |
-| `quality_gate_agent`        | `QualityCheckResult` | 2       | N/A (this is the gate itself)                |
+| Agent                       | Output Type          | Retries | Has Quality Gate                                     |
+| --------------------------- | --------------------- | ------- | ------------------------------------------------------ |
+| `job_scraper_agent`         | `ScrapedJobPosting`  | 3       | No (has `validate_extraction` tool)                  |
+| `scraper_agent`             | `JobAnalysis`        | 5       | No (legacy; `job_scraper_agent` used by CLI)         |
+| `resume_parser_agent`       | `CV`                 | 5       | Yes                                                  |
+| `analyst_agent`             | `JobAnalysis`        | 5       | Yes                                                  |
+| `writer_agent`              | `CV`                 | 5       | Yes                                                  |
+| `reviewer_agent`            | `ReviewResult`       | 5       | No                                                   |
+| `auditor_agent`             | `AuditResult`        | 5       | Yes                                                  |
+| `skill_matcher_agent`       | `SkillMatchResult`   | 3       | No (shape validator; falls back to literal matching) |
+| `report_agent`              | `ReportNarrative`    | 5       | No                                                   |
+| `cover_letter_writer_agent` | `str`                | 5       | Yes (defined but not wired into workflow)            |
+| `quality_gate_agent`        | `QualityCheckResult` | 2       | N/A (this is the gate itself)                        |
 
 **Quality gate fallback**: Each gated agent has a `_QualityState` instance (`_parser_qs`, `_analyst_qs`, `_writer_qs`, `_auditor_qs`, `_cover_qs`). When the quality gate exhausts retries, the system uses the last available output instead of failing fatally (`UnexpectedModelBehavior` is caught and fallback applied).
 
@@ -149,7 +152,7 @@ uv run pytest -v
 - Test config lives in `pyproject.toml` (`[tool.pytest.ini_options]`).
 - `tests/conftest.py` disables real LLM calls when testing (`models.ALLOW_MODEL_REQUESTS = False`).
 - All tests use a dummy `OPENAI_API_KEY`; no real API calls are made.
-- Test modules: `test_cli_typer.py`, `test_cv_diff.py`, `test_job_scraper_helpers.py`, `test_job_scraper.py`, `test_main.py`, `test_parsing_determinism.py`, `test_quality_gate.py`, `test_resume_converter.py`, `test_verbose_agent.py`, `memory/test_service.py`, `workflows/test_resume_tailor_workflow.py`, and more.
+- Test modules: `test_cli_typer.py`, `test_cv_diff.py`, `test_job_scraper_helpers.py`, `test_job_scraper.py`, `test_main.py`, `test_parsing_determinism.py`, `test_quality_gate.py`, `test_resume_converter.py`, `test_verbose_agent.py`, `test_skill_matcher.py`, `test_skill_matching_utils.py`, `test_semantic_match_regression.py`, `memory/test_service.py`, `workflows/test_resume_tailor_workflow.py`, and more.
 
 ## Style & Linting
 

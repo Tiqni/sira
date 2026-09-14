@@ -51,26 +51,27 @@ light; the report tells you where that light does not reach.
 flowchart LR
     ORIG["Original CV<br/>(parsed)"] --> DIFF["compute_cv_diff()<br/>pure Python"]
     TAIL["Tailored CV"] --> DIFF
-    JOB["JobAnalysis<br/>(skills, keywords)"] --> GAP["compute_gap_analysis()<br/>pure Python"]
-    ORIG --> GAP
+    JOB["JobAnalysis<br/>(skills, keywords)"] --> MATCH["match_skills()<br/>skill judge + evidence"] --> GAP["compute_gap_analysis()<br/>compute_match_score()<br/>pure Python"]
+    ORIG --> MATCH
     DIFF --> RPT
     GAP --> RPT
     AUD["AuditResult<br/>(scores, issues)"] --> RPT["report_agent"]
     RPT --> OUT["FinalReport<br/>match score + verdict"]
 ```
 
-The two `pure Python` boxes matter: **the diff and the gap analysis are computed in
-plain code**, not asked of a model. A model cannot quietly flatter you about which keywords
-you are missing, because it never decides that. It only writes the prose around the
-numbers.
+The `pure Python` box matters: **the diff, the gap analysis, the score and the verdict
+are computed in plain code**. A model is asked one thing — whether your CV shows each
+job skill, with a quote as evidence — and cannot flatter you beyond that, because it
+never touches the numbers.
 
 ### Sections in the report
 
 | Section | What it tells you |
 | --- | --- |
-| **Match Score & Recommendation** | A 0–100 score and a verdict: *Strong Match*, *Partial Match*, or *Weak Match*, with the reasoning. |
+| **Match Score & Recommendation** | A 0–100 score and a verdict: *Strong Match*, *Partial Match*, or *Weak Match*, with the reasoning. Score = 0.6·hard + 0.2·soft + 0.2·keywords coverage. |
 | **What Changed** | Whether the summary was rewritten, which skills moved up or down, and which bullet points were rephrased for each role. |
 | **Keyword Coverage** | Which ATS keywords from the posting appear in your resume, which do not, and the percentage covered. |
+| **Skills Covered** | Hard and soft skills the job asks for that your resume shows — by meaning, not only exact words — each with the resume line that proves it, and the coverage percentages that feed the score. |
 | **Skill Gaps** | Hard and soft skills the job asks for that are genuinely absent from your resume. |
 | **Suggestions to Strengthen Your Application** | Concrete things to do — usually about experience you should add to the *original* resume, not to this tailored copy. |
 | **Audit Summary** | The auditor's feedback on tone, authenticity, and rule compliance. |

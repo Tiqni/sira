@@ -133,6 +133,10 @@ def generate_report_markdown(report: FinalReport) -> str:
     lines.append("## 🎯 Match Score & Recommendation\n")
     lines.append(f"**Score:** {report.match_score}/100  \n")
     lines.append(f"**Verdict:** {report.overall_recommendation}\n")
+    lines.append(
+        "_Score = 0.6·hard + 0.2·soft + 0.2·keywords coverage; "
+        "empty buckets are rescaled (see ARCHITECTURE.md)._\n"
+    )
     lines.append(f"{report.recommendation_rationale}\n")
 
     # What changed
@@ -184,6 +188,24 @@ def generate_report_markdown(report: FinalReport) -> str:
     if gap.missing_keywords:
         missing_str = ", ".join(f"`{k}`" for k in gap.missing_keywords)
         lines.append(f"\n❌ **Missing:** {missing_str}\n")
+
+    # Skills covered (literal pre-pass + semantic judge, with evidence)
+    lines.append("---\n")
+    lines.append("## ✅ Skills Covered\n")
+    hard_total = len(gap.covered_hard_skills) + len(gap.missing_hard_skills)
+    soft_total = len(gap.covered_soft_skills) + len(gap.missing_soft_skills)
+    lines.append(
+        f"**Hard skills: {len(gap.covered_hard_skills)}/{hard_total} "
+        f"({gap.hard_skill_coverage_percent:.1f}%) · "
+        f"Soft skills: {len(gap.covered_soft_skills)}/{soft_total} "
+        f"({gap.soft_skill_coverage_percent:.1f}%)**\n"
+    )
+    covered_skills = [*gap.covered_hard_skills, *gap.covered_soft_skills]
+    if not covered_skills:
+        lines.append("_No required skills found in your CV._\n")
+    for skill in covered_skills:
+        quote = gap.skill_evidence.get(skill, "")
+        lines.append(f'- **{skill}** — "{quote}"\n' if quote else f"- **{skill}**\n")
 
     # Skill gaps
     lines.append("---\n")
