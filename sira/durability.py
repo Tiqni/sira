@@ -98,8 +98,15 @@ def durable_runtime(
     if _active:
         yield
         return
-    DBOS(config=build_config(db_url, tracing=tracing))
-    DBOS.launch()
+    try:
+        DBOS(config=build_config(db_url, tracing=tracing))
+        DBOS.launch()
+    except BaseException:
+        # A failed launch must not leave DBOS's process-wide singleton half
+        # initialised: a later call would silently reuse it instead of
+        # rebuilding it.
+        DBOS.destroy()
+        raise
     _active = True
     try:
         yield

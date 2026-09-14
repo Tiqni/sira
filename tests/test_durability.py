@@ -70,3 +70,29 @@ async def _probe_workflow(x: int) -> int:
 async def test_workflow_runs_inside_durable_runtime(tmp_path):
     with durability.durable_runtime(f"sqlite:///{tmp_path}/dbos.sqlite3"):
         assert await _probe_workflow(21) == 42
+
+
+def test_launch_failure_destroys_the_half_built_runtime(monkeypatch, tmp_path):
+    """A failed launch must not leave DBOS's global singleton behind."""
+    events: list[str] = []
+
+    class FakeDBOS:
+        def __init__(self, *, config):
+            events.append("construct")
+
+        @classmethod
+        def launch(cls):
+            events.append("launch")
+            raise RuntimeError("launch failed")
+
+        @classmethod
+        def destroy(cls, **kwargs):
+            events.append("destroy")
+
+    monkeypatch.setattr(durability, "DBOS", FakeDBOS)
+    monkeypatch.setattr(durability, "_active", False)
+    with pytest.raises(RuntimeError, match="launch failed"):
+        with durability.durable_runtime(f"sqlite:///{tmp_path}/d.sqlite3"):
+            pass
+    assert events == ["construct", "launch", "destroy"]
+    assert durability.is_active() is False
