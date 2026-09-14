@@ -598,8 +598,10 @@ report_agent = Agent(
     - Job requirements (JobAnalysis JSON)
 
     Your job is to produce ONLY the following narrative fields:
-    1. suggestions_to_strengthen: 2-4 concrete, actionable items the candidate can do
-       to close the missing skills (certifications, side projects, courses, etc.)
+    1. suggestions_to_strengthen: up to 4 concrete, actionable items the candidate
+       can do to close the missing skills (certifications, side projects, courses,
+       etc.). If no skills are missing, return a single item saying the CV already
+       covers the requirements.
     2. audit_summary: one paragraph in plain English summarising the hallucination
        score and AI-cliché score from the AuditResult.
     3. recommendation_rationale: one honest paragraph explaining the given verdict.
