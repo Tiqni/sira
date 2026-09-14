@@ -648,9 +648,13 @@ skill_matcher_agent = Agent(
        covers "Retrieval-augmented generation".
     2. "Not covered" means the CV gives no evidence. When unsure, answer not covered.
        Never invent evidence.
-    3. evidence: a short quote (at most 200 characters) copied from the CV text
+    3. Adjacent work does not count. The CV must show the candidate doing the skill
+       itself: building tools for AI assistants is not building multi-turn dialog
+       systems; deploying infrastructure is not deploying ML models; using a
+       library is not designing the algorithm it implements.
+    4. evidence: a short quote (at most 200 characters) copied from the CV text
        that shows the skill. Empty string when not covered.
-    4. Return exactly one entry per input skill, using the skill text exactly as
+    5. Return exactly one entry per input skill, using the skill text exactly as
        given, in the same order. No extra skills, no duplicates.
     """,
     output_type=SkillMatchResult,

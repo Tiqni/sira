@@ -122,9 +122,14 @@ defaults so stored reports and existing tests keep validating.
      leadership and mentorship".
   3. Not covered means the CV gives no evidence. When unsure, answer not
      covered. Never invent evidence.
-  4. `evidence` must be a short quote (≤ 200 characters) copied from the CV
+  4. Adjacent work does not count: the CV must show the candidate doing the
+     skill itself (building tools for AI assistants is not building multi-turn
+     dialog systems; deploying infrastructure is not deploying ML models; using
+     a library is not designing the algorithm it implements). Added after the
+     first real run accepted two adjacent-work matches.
+  5. `evidence` must be a short quote (≤ 200 characters) copied from the CV
      text; empty string when not covered.
-  5. Return exactly one entry per input skill, using the skill text exactly as
+  6. Return exactly one entry per input skill, using the skill text exactly as
      given, in the same order.
 - `@skill_matcher_agent.output_validator` `_validate_skill_matches`: reads the
   expected skill list from `ctx.deps` (a `tuple[str, ...]`, so the agent's
