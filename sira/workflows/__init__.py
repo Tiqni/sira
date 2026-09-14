@@ -6,7 +6,7 @@ from pydantic_ai.exceptions import UnexpectedModelBehavior
 from pydantic_ai.usage import RunUsage
 
 from sira.durability import is_active
-from sira.models.agents.output import CV, CVDiff, FinalReport, JobAnalysis
+from sira.models.agents.output import CV, CVDiff, FinalReport, JobAnalysis, SkillMatch
 from sira.models.workflow import ResumeTailorResult, RunMetadata, TailorInputs
 from sira.reporting.base import (
     NullReporter,
@@ -471,6 +471,10 @@ class ResumeTailorWorkflow:
         # --- STEP 2: WRITE + REVIEW + AUDIT LOOP (with optional feedback retry) ---
         user_feedback: str = ""
         feedback_attempts_remaining: int = 1
+        # match_skills's inputs (original CV, job analysis) never change across
+        # Hook 1/Hook 2 feedback loops, so it is computed at most once per run —
+        # every re-entry into the report phase below reuses this result.
+        skill_matches: dict[str, SkillMatch] | None = None
 
         while True:
             new_cv: CV | None = None
@@ -847,12 +851,13 @@ Compare the two structured CVs carefully. Ensure that:
                     if new_cv is not None
                     else CVDiff()
                 )
-                skill_matches = await match_skills(
-                    original_cv,
-                    job_analysis,
-                    usage=total_usage,
-                    usage_limits=USAGE_LIMITS,
-                )
+                if skill_matches is None:
+                    skill_matches = await match_skills(
+                        original_cv,
+                        job_analysis,
+                        usage=total_usage,
+                        usage_limits=USAGE_LIMITS,
+                    )
                 gap_analysis = compute_gap_analysis(
                     original_cv, new_cv, job_analysis, skill_matches=skill_matches
                 )
@@ -903,6 +908,7 @@ Job Analysis: {job_data_json}
                     hook2_details = [
                         f"Match score: {final_report.match_score}/100",
                         f"Keyword coverage: {len(gap.covered_keywords)}/{total_kw} ({gap.keyword_coverage_percent:.1f}%)",
+                        f"Skill coverage: hard {gap.hard_skill_coverage_percent:.1f}% · soft {gap.soft_skill_coverage_percent:.1f}%",
                     ]
                     if gap.missing_hard_skills:
                         hook2_details.append(

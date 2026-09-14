@@ -49,8 +49,11 @@ def install_pipeline_stubs(
     call — the shape of a Ctrl+C mid-stage (DBOS leaves the run PENDING).
     ``*_fail_on_call`` raise ``RuntimeError`` on that call number.
     ``report_weak_first`` makes the skill matcher cover nothing on its first
-    call (score 30 → "Weak Match", triggers the interactive checkpoint) and
-    everything afterwards ("Strong Match").
+    real CALL (score 30 → "Weak Match", triggers the interactive checkpoint)
+    and everything on every real call afterwards ("Strong Match"). Since
+    ``match_skills`` runs at most once per run, a continued run only reaches
+    a second real call when it is forked (a fresh invocation of the workflow
+    function, which calls the matcher again).
     """
     calls = {
         "parser": 0,

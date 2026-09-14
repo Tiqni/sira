@@ -294,7 +294,11 @@ def _matcher_stub(covered_sequence: list[bool]):
     skill. With the job used by ``_base_agent_mocks`` (hard: Python,
     Kubernetes; soft: Communication; keywords: Python, Kubernetes) and
     ``sample_cv`` (has Python), all-False gives score 40 → "Weak Match" and
-    all-True gives 90 → "Strong Match".
+    all-True gives 90 → "Strong Match". ``match_skills`` now runs at most
+    once per run (see ``skill_matches`` in the workflow's report phase), so a
+    multi-item sequence no longer models a Weak→Strong swing within one run —
+    it is still useful for a forked/continued run, which calls the matcher
+    again from a fresh invocation.
     """
     calls = {"n": 0}
 
@@ -612,19 +616,24 @@ async def test_report_survives_skill_matcher_step_retry_exhaustion(
 
 
 @pytest.mark.anyio
-async def test_interactive_weak_match_feedback_then_strong(monkeypatch, sample_cv):
-    """Feedback triggers a re-run; second cycle produces Strong Match."""
+async def test_interactive_weak_match_feedback_then_partial(monkeypatch, sample_cv):
+    """Feedback re-runs the writer; the second tailored CV covers every ATS
+    keyword, so the verdict rises to Partial."""
     writer_prompts = []
+    enhanced_cv = sample_cv.model_copy(
+        update={"skills": [*sample_cv.skills, "Kubernetes"]}
+    )
 
     async def run_writer_capture(*args, **kwargs):
         writer_prompts.append(args[0] if args else "")
-        return DummyRunResult(sample_cv)
+        cv = sample_cv if len(writer_prompts) == 1 else enhanced_cv
+        return DummyRunResult(cv)
 
     _base_agent_mocks(
         monkeypatch,
         sample_cv,
         auditor_result=_make_passing_audit(),
-        matcher_covered=[False, True],
+        matcher_covered=[False],
     )
     monkeypatch.setattr("sira.workflows.agents.writer_agent.run", run_writer_capture)
 
@@ -639,6 +648,8 @@ async def test_interactive_weak_match_feedback_then_strong(monkeypatch, sample_c
     assert result.passed is True
     assert len(writer_prompts) >= 2
     assert "emphasize Python" in writer_prompts[1]
+    assert result.final_report.overall_recommendation == "Partial Match"
+    assert result.final_report.match_score == 50
 
 
 @pytest.mark.anyio
