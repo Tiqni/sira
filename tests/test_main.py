@@ -428,3 +428,32 @@ async def test_tailor_impl_interactive_flag_wired_through(
         )
 
     assert captured_kwargs.get("interactive") is True
+
+
+def test_print_report_to_console_escapes_rich_markup_in_skill_lines(capsys):
+    """A skill name or CV-quoted evidence containing "[...]" must not crash
+    Rich's markup parser or silently swallow the bracketed text."""
+    from sira.main import _print_report_to_console
+    from sira.models.agents.output import CVDiff, FinalReport, GapAnalysis
+
+    report = FinalReport(
+        job_title="Engineer",
+        company_name="Acme",
+        generated_at="2026-01-01T00:00:00Z",
+        overall_recommendation="Strong Match",
+        match_score=90,
+        what_changed=CVDiff(),
+        gaps=GapAnalysis(
+            covered_hard_skills=["[Scripting]"],
+            skill_evidence={"[Scripting]": "Wrote [docs](url) and a [/bad] tag"},
+        ),
+        audit_summary="ok",
+        recommendation_rationale="ok",
+        passed=True,
+    )
+
+    _print_report_to_console(report)  # must not raise rich.errors.MarkupError
+
+    out = capsys.readouterr().out
+    assert "[Scripting]" in out
+    assert "[/bad] tag" in out

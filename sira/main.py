@@ -14,6 +14,7 @@ import typer
 from dbos import DBOS, SetWorkflowID
 from pydantic import ValidationError
 from rich.console import Console
+from rich.markup import escape
 
 from sira.durability import application_version, durable_runtime
 from sira.memory.parser import PydanticAIResumeParser
@@ -214,7 +215,12 @@ def _print_report_to_console(report: FinalReport) -> None:
     )
     for skill in (*gap.covered_hard_skills, *gap.covered_soft_skills):
         quote = gap.skill_evidence.get(skill, "")
-        console.print(f'  ✅ {skill} — "{quote}"' if quote else f"  ✅ {skill}")
+        line = (
+            f'  ✅ {escape(skill)} — "{escape(quote)}"'
+            if quote
+            else f"  ✅ {escape(skill)}"
+        )
+        console.print(line)
 
     console.print("\nSUGGESTIONS TO STRENGTHEN")
     for suggestion in report.suggestions_to_strengthen:
