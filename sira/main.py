@@ -355,6 +355,15 @@ async def _run_workflow(
             f"[yellow]💡 Retry from the last checkpoint with: sira resume {run_id}[/yellow]"
         )
         return (1, None, None, _EMPTY_RESULT)
+    except typer.Exit:
+        raise
+    except Exception as e:  # noqa: BLE001 — top-level CLI boundary
+        logger.error("run_failed", exc_info=True)
+        console.print(f"[red]❌ Run failed: {type(e).__name__}: {e}[/red]")
+        console.print(
+            f"[yellow]💡 Retry from the last checkpoint with: sira resume {run_id}[/yellow]"
+        )
+        return (1, None, None, _EMPTY_RESULT)
 
     exit_code, resume_path_out, report_path_out = _write_outputs(
         result,
@@ -641,8 +650,10 @@ async def _tailor_impl(
             job_posting_markdown=job_posting_markdown,
         )
         console.print("\n✅ Job completed")
-        console.print(f"📄 Tailored CV: {resume_path_out}")
-        console.print(f"📊 Report: {report_path_out}")
+        if resume_path_out:
+            console.print(f"📄 Tailored CV: {resume_path_out}")
+        if report_path_out:
+            console.print(f"📊 Report: {report_path_out}")
 
     return exit_code
 
@@ -698,7 +709,7 @@ def tailor(
     """Run the full resume tailoring workflow."""
     run_id = str(uuid.uuid4())
     try:
-        return asyncio.run(
+        code = asyncio.run(
             _tailor_impl(
                 job_url,
                 resume_path,
@@ -722,6 +733,7 @@ def tailor(
             f"\n⏹  Interrupted. If the pipeline had started, continue it with: sira resume {run_id}"
         )
         raise typer.Exit(code=130)
+    raise typer.Exit(code=code)
 
 
 async def _re_tailor_impl(
@@ -889,12 +901,14 @@ async def _re_tailor_impl(
             job_posting_markdown=job_posting_markdown,
             fallback_cv=resolved.cv if resolved else None,
         )
-        if saved and resume_path_out and report_path_out:
+        if saved:
             console.print(
                 f"\n✅ Re-tailoring completed: {result.company_name} / {result.job_title}"
             )
-            console.print(f"📄 Updated CV: {resume_path_out}")
-            console.print(f"📊 Updated Report: {report_path_out}")
+            if resume_path_out:
+                console.print(f"📄 Updated CV: {resume_path_out}")
+            if report_path_out:
+                console.print(f"📊 Updated Report: {report_path_out}")
 
     return exit_code
 
@@ -953,7 +967,7 @@ def re_tailor(
     """Re-run tailoring with recommendations from a prior audit."""
     run_id = str(uuid.uuid4())
     try:
-        return asyncio.run(
+        code = asyncio.run(
             _re_tailor_impl(
                 job_id,
                 recommendations,
@@ -978,6 +992,7 @@ def re_tailor(
             f"\n⏹  Interrupted. If the pipeline had started, continue it with: sira resume {run_id}"
         )
         raise typer.Exit(code=130)
+    raise typer.Exit(code=code)
 
 
 async def _resume_impl(run_id: str, *, verbose: bool = False) -> int:
@@ -989,8 +1004,10 @@ async def _resume_impl(run_id: str, *, verbose: bool = False) -> int:
         try:
             handle = await DBOS.retrieve_workflow_async(run_id)
             status = await handle.get_status()
-        except Exception:
-            console.print(f"[red]❌ Unknown run id: {run_id}[/red]")
+        except Exception as e:
+            console.print(
+                f"[red]❌ Unknown run id: {run_id} ({type(e).__name__})[/red]"
+            )
             return 1
         if status.name != TAILOR_WORKFLOW_NAME:
             console.print(
@@ -1038,6 +1055,17 @@ async def _resume_impl(run_id: str, *, verbose: bool = False) -> int:
                             f"[yellow]💡 Retry with: sira resume {handle.workflow_id}[/yellow]"
                         )
                         return 1
+                    except typer.Exit:
+                        raise
+                    except Exception as e:  # noqa: BLE001 — top-level CLI boundary
+                        logger.error("resume_failed", exc_info=True)
+                        console.print(
+                            f"[red]❌ Run failed: {type(e).__name__}: {e}[/red]"
+                        )
+                        console.print(
+                            f"[yellow]💡 Retry with: sira resume {handle.workflow_id}[/yellow]"
+                        )
+                        return 1
                 finally:
                     install_global_reporter(None)
 
@@ -1066,8 +1094,10 @@ async def _resume_impl(run_id: str, *, verbose: bool = False) -> int:
                 job_posting_markdown=meta.job_posting_markdown,
             )
         console.print("\n✅ Job completed")
-        console.print(f"📄 Tailored CV: {resume_path_out}")
-        console.print(f"📊 Report: {report_path_out}")
+        if resume_path_out:
+            console.print(f"📄 Tailored CV: {resume_path_out}")
+        if report_path_out:
+            console.print(f"📊 Report: {report_path_out}")
     return exit_code
 
 
@@ -1098,8 +1128,13 @@ async def _runs_impl(limit: int) -> None:
         console.print("No runs recorded yet.")
         return
     table = Table(title="Recent runs")
-    for column in ("Run ID", "Status", "Job", "Started", "Duration"):
-        table.add_column(column)
+    # The run id must stay copyable at any terminal width: pin its column
+    # (Rich never shrinks a column below min_width) and let the job fold.
+    table.add_column("Run ID", no_wrap=True, min_width=36)
+    table.add_column("Status")
+    table.add_column("Job", overflow="fold")
+    table.add_column("Started")
+    table.add_column("Duration")
     for st in statuses:
         inputs = st.input["args"][0] if st.input else None
         meta = inputs.metadata if isinstance(inputs, TailorInputs) else RunMetadata()
@@ -1114,12 +1149,7 @@ async def _runs_impl(limit: int) -> None:
             f"{(end - st.created_at) / 1000:.0f}s" if st.created_at and end else "-"
         )
         table.add_row(st.workflow_id, st.status, job, started, duration)
-    # Run IDs (UUIDs) and job URLs are long; a narrow or non-tty console (e.g.
-    # a piped terminal, which rich reports as 80 columns) would otherwise
-    # truncate cells with an ellipsis and hide the very value this table
-    # exists to show. `Console.print(width=...)` only ever *shrinks* to the
-    # detected width, so render on a separate, explicitly wide console instead.
-    Console(width=max(console.size.width, 200)).print(table)
+    console.print(table)
 
 
 @app.command()

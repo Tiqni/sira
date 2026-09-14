@@ -56,9 +56,10 @@ def _start_run(tmp_path, sample_cv, monkeypatch, **stub_kwargs):
 def test_runs_lists_recent_runs(tmp_path, sample_cv, monkeypatch):
     run_id, _, exc = _start_run(tmp_path, sample_cv, monkeypatch)
     assert exc is None
+    monkeypatch.setenv("COLUMNS", "200")
     result = runner.invoke(app, ["runs", "--limit", "5"])
     assert result.exit_code == 0, result.output
-    assert run_id[:8] in result.output
+    assert run_id in result.output
     assert "SUCCESS" in result.output
     assert "example.com/job/1" in result.output
 
@@ -119,3 +120,89 @@ def test_resume_refuses_a_run_from_another_sira_version(
     result = runner.invoke(app, ["resume", run_id])
     assert result.exit_code == 1
     assert "9.9.9" in result.output
+
+
+def test_tailor_exits_1_when_the_pipeline_fails(tmp_path, monkeypatch):
+    """A PipelineError must reach the shell as exit code 1 with the resume hint."""
+    from unittest.mock import AsyncMock, MagicMock
+
+    from sira.workflows import PipelineError
+
+    resume_file = tmp_path / "resume.md"
+    resume_file.write_text("# Jane Doe\nPython developer.")
+    monkeypatch.chdir(tmp_path)
+    failing = MagicMock()
+    failing.run = AsyncMock(side_effect=PipelineError("analyst gave up"))
+    patches = [
+        patch(
+            "sira.main.fetch_job_markdown",
+            AsyncMock(return_value=MagicMock(markdown_raw="# job")),
+        ),
+        patch(
+            "sira.main.job_scraper_agent.run",
+            AsyncMock(return_value=MagicMock(output="# job")),
+        ),
+        patch("sira.main.ResumeTailorWorkflow", MagicMock(return_value=failing)),
+        *_memory_patches(),
+    ]
+    for p in patches:
+        p.start()
+    try:
+        result = runner.invoke(
+            app,
+            [
+                "tailor",
+                "https://example.com/job/1",
+                str(resume_file),
+                "--output-dir",
+                str(tmp_path / "out"),
+            ],
+        )
+    finally:
+        for p in patches:
+            p.stop()
+    assert result.exit_code == 1, result.output
+    assert "analyst gave up" in result.output
+    assert "sira resume" in result.output
+
+
+def test_tailor_exits_1_with_hint_on_unmapped_failure(tmp_path, monkeypatch):
+    """A raw RuntimeError from a stage still exits 1 and prints the resume hint."""
+    from unittest.mock import AsyncMock, MagicMock
+
+    resume_file = tmp_path / "resume.md"
+    resume_file.write_text("# Jane Doe\nPython developer.")
+    monkeypatch.chdir(tmp_path)
+    failing = MagicMock()
+    failing.run = AsyncMock(side_effect=RuntimeError("writer crashed"))
+    patches = [
+        patch(
+            "sira.main.fetch_job_markdown",
+            AsyncMock(return_value=MagicMock(markdown_raw="# job")),
+        ),
+        patch(
+            "sira.main.job_scraper_agent.run",
+            AsyncMock(return_value=MagicMock(output="# job")),
+        ),
+        patch("sira.main.ResumeTailorWorkflow", MagicMock(return_value=failing)),
+        *_memory_patches(),
+    ]
+    for p in patches:
+        p.start()
+    try:
+        result = runner.invoke(
+            app,
+            [
+                "tailor",
+                "https://example.com/job/1",
+                str(resume_file),
+                "--output-dir",
+                str(tmp_path / "out"),
+            ],
+        )
+    finally:
+        for p in patches:
+            p.stop()
+    assert result.exit_code == 1, result.output
+    assert "writer crashed" in result.output
+    assert "sira resume" in result.output
