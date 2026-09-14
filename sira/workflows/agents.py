@@ -31,6 +31,8 @@ from sira.models.agents.output import (
     QualityCheckResult,
     ReviewResult,
     FinalReport,
+    SkillMatch,
+    SkillMatchResult,
 )
 from sira.reporting.base import get_active_reporter
 
@@ -120,12 +122,14 @@ async def run_agent(
     usage: RunUsage | None = None,
     usage_limits: UsageLimits | None = None,
     model: str | None = None,
+    deps: Any = None,
 ) -> AgentRunResult:
     """Run an agent, emitting lifecycle events to the active reporter.
 
     Token streaming is done by the DBOSDurability event-stream handler on the
     agent (see _stream_to_reporter), so this always uses ``agent.run``: one
-    code path inside and outside a DBOS workflow.
+    code path inside and outside a DBOS workflow. ``deps`` is forwarded to
+    ``agent.run`` only when given, so agents without a deps type are unaffected.
     """
     reporter = get_active_reporter()
 
@@ -133,6 +137,8 @@ async def run_agent(
     resolved = model if model is not None else resolve_model(agent_label)
     if resolved is not None:
         run_kwargs["model"] = normalize_model_name(resolved)
+    if deps is not None:
+        run_kwargs["deps"] = deps
 
     _safe_report(reporter.agent_start, agent_label, prompt)
     start = time.monotonic()
@@ -212,6 +218,7 @@ _AGENT_TIERS = {
     "Analyst": "fast",
     "Quality Gate": "fast",
     "Reviewer": "fast",
+    "Skill Matcher": "fast",  # yes/no per skill with a quote; a small model is enough
     "Writer": "strong",
     "Writer (refine)": "strong",
     "Auditor": "strong",
@@ -621,6 +628,79 @@ report_agent = Agent(
     retries=5,
     capabilities=[_durability()],
 )
+
+
+# --- Skill Matcher (judge) ---
+# Responsibility: decide, per job skill, whether the ORIGINAL CV shows the same
+# concept — even in different words — and quote the CV line as evidence. The
+# workflow runs a literal pre-pass first, so this agent only sees the skills
+# that need a semantic decision. Output feeds compute_gap_analysis; the score
+# itself is pure Python (compute_match_score).
+MAX_EVIDENCE_CHARS = 200
+
+skill_matcher_agent = Agent(
+    _DEFAULT_MODEL,
+    name="sira.skill_matcher",
+    model_settings=MODEL_SETTINGS,
+    deps_type=tuple[str, ...],
+    system_prompt="""
+    You judge whether a candidate's CV covers each skill a job asks for.
+
+    You receive the CV as plain text and a numbered list of job skills.
+    For EACH skill decide whether the CV shows the candidate has done or used
+    that concept.
+
+    Rules:
+    1. "Covered" means the same concept is present even when the wording differs:
+       abbreviations, synonyms, or a bullet that describes the activity.
+       Examples: "K8s" covers "Kubernetes"; "mentor to ~30 engineers" covers
+       "Technical leadership and mentorship"; "built RAG pipeline in production"
+       covers "Retrieval-augmented generation".
+    2. "Not covered" means the CV gives no evidence. When unsure, answer not covered.
+       Never invent evidence.
+    3. evidence: a short quote (at most 200 characters) copied from the CV text
+       that shows the skill. Empty string when not covered.
+    4. Return exactly one entry per input skill, using the skill text exactly as
+       given, in the same order. No extra skills, no duplicates.
+    """,
+    output_type=SkillMatchResult,
+    retries=3,
+    capabilities=[_durability()],
+)
+
+
+def _skill_key(text: str) -> str:
+    return " ".join(text.split()).casefold()
+
+
+@skill_matcher_agent.output_validator
+async def _validate_skill_matches(
+    ctx: RunContext[tuple[str, ...]], output: SkillMatchResult
+) -> SkillMatchResult:
+    """Require one entry per requested skill; canonicalise names; clean evidence."""
+    expected_by_key = {_skill_key(s): s for s in (ctx.deps or ())}
+    seen: set[str] = set()
+    unexpected: list[str] = []
+    cleaned: list[SkillMatch] = []
+    for match in output.matches:
+        key = _skill_key(match.skill)
+        if key not in expected_by_key or key in seen:
+            unexpected.append(match.skill)
+            continue
+        seen.add(key)
+        evidence = match.evidence.strip()[:MAX_EVIDENCE_CHARS] if match.covered else ""
+        cleaned.append(
+            SkillMatch(
+                skill=expected_by_key[key], covered=match.covered, evidence=evidence
+            )
+        )
+    missing = [s for k, s in expected_by_key.items() if k not in seen]
+    if missing or unexpected:
+        raise ModelRetry(
+            "Return exactly one entry per requested skill, names copied verbatim. "
+            f"Missing: {missing}. Unexpected or duplicated: {unexpected}."
+        )
+    return SkillMatchResult(matches=cleaned)
 
 
 # ---------------------------------------------------------------------------
