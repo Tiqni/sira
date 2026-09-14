@@ -87,3 +87,26 @@ def test_literal_matches_is_case_insensitive_and_whitespace_tolerant(subtests):
 
 def test_literal_matches_ignores_blank_skills():
     assert literal_matches(["", "   "], "anything") == {}
+
+
+def test_literal_matches_requires_whole_terms(subtests):
+    text = "Skills: JavaScript, C++, Node.js, .NET\nSummary: code for google"
+    found = literal_matches(
+        ["Java", "C", "R", "Go", "C++", "Node.js", ".NET", "JavaScript"], text
+    )
+    with subtests.test("java_not_in_javascript"):
+        assert "Java" not in found
+    with subtests.test("c_not_in_code"):
+        assert "C" not in found
+    with subtests.test("r_not_anywhere"):
+        assert "R" not in found
+    with subtests.test("go_not_in_google"):
+        assert "Go" not in found
+    with subtests.test("cpp_matches"):
+        assert "C++" in found
+    with subtests.test("node_js_matches"):
+        assert "Node.js" in found
+    with subtests.test("dot_net_matches"):
+        assert ".NET" in found
+    with subtests.test("javascript_matches"):
+        assert "JavaScript" in found
