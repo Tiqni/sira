@@ -125,20 +125,26 @@ single workflow input and holds everything the run *and* the post-processing
 need, so `sira resume <id>` needs no other arguments:
 
 ```
-resume_text, job_content, pre_parsed_cv: CV | None,
-model: str | None, fast: bool, write_attempts: int, review_iterations: int,
-quality_gate: bool, gate_threshold: int, interactive: bool, debug: bool, verbose: bool,
-job_url: str | None, resume_source_path: str, output_dir: str,
-output_pattern: str, resume_name_pattern: str, recommendations: str
+resume_text, job_content, job_content_file_path, pre_parsed_cv: CV | None,
+model: str | None, fast_model: str | None, strong_model: str | None,
+write_attempts: int, review_iterations: int, quality_gate: bool, gate_threshold: int,
+interactive: bool, debug: bool, verbose: bool,
+metadata: RunMetadata(job_url, job_id, resume_source_path, output_dir,
+                      output_pattern, resume_name_pattern, job_posting_markdown)
 ```
+
+`fast_model` / `strong_model` are the resolved tier models (what `--fast` or
+`set_agent_models` produced), not the flag, so a continued run does not need
+to re-run the preset. `RunMetadata.job_id` marks a re-tailor run.
 
 **`sira/workflows/__init__.py`**
 
 - `@DBOS.workflow(name="sira.tailor") async def tailor_workflow(inputs: TailorInputs) -> ResumeTailorResult`
-  — module-level. Body: `apply_model_override(inputs.model)`, the `--fast`
-  preset when `inputs.fast`, `set_quality_gate(...)`, build
-  `ResumeTailorWorkflow(...)`, run `_run_impl`. Applying settings inside the
-  workflow makes first run and resume identical.
+  — module-level. Body: `apply_model_override(inputs.model)`,
+  `set_agent_models(fast=inputs.fast_model, strong=inputs.strong_model)` when
+  set, `set_quality_gate(...)`, build `ResumeTailorWorkflow(...)`, run
+  `_run_impl`. Applying settings inside the workflow makes first run and
+  resume identical.
 - `ResumeTailorWorkflow.run()` keeps its signature and delegates to
   `tailor_workflow` (tests keep calling `run()`; the reporter is installed via
   `use_reporter` around the call and is **not** a workflow input).
@@ -196,9 +202,20 @@ output_pattern: str, resume_name_pattern: str, recommendations: str
      refuse with a message (DBOS only dequeues a resumed workflow whose
      version matches, so it would otherwise hang).
   3. `SUCCESS` → use `WorkflowStatus.output`, skip to step 5.
-  4. `ERROR` whose stored exception is `UserAbortedError` → print "this run
-     was aborted by you; start a new `sira tailor`", exit 1. Any other
-     non-running status → `DBOS.resume_workflow_async(id)`, await the handle.
+  4. Otherwise continue the run — the DBOS call depends on the status
+     (verified on dbos 2.31: `resume_workflow` is a no-op for `SUCCESS` and
+     `ERROR`; `fork_workflow(id, start_step)` copies the checkpointed steps
+     before `start_step` into a **new** workflow id and re-executes from there):
+     - `PENDING` (killed / Ctrl+C), `CANCELLED`, `MAX_RECOVERY_ATTEMPTS_EXCEEDED`
+       → `DBOS.resume_workflow_async(id)`; same run id.
+     - `ERROR` from anything except `UserAbortedError` →
+       `DBOS.fork_workflow_async(id, start_step=<highest completed function_id> + 1)`;
+       print the new run id.
+     - `ERROR` from `UserAbortedError` (the user chose "quit" at a checkpoint)
+       → fork **at** the last `sira.human_checkpoint` step
+       (`start_step=<that step's function_id>`) so the question is asked
+       again; print the new run id.
+     Then await the handle.
   5. Post-processing: write CV and report files, save to memory — the same
      code `tailor` uses after the workflow returns.
 - New `sira runs [--limit N]`: `DBOS.list_workflows(name="sira.tailor", sort_desc=True, limit=N)`
@@ -243,7 +260,7 @@ sira resume <id>
 | pydantic-ai `ModelRetry`, quality-gate exhaustion (`UnexpectedModelBehavior`) | Unchanged agent-level behavior; not checkpointed, so re-run on resume. |
 | `PipelineError`, `UserAbortedError` | Workflow `ERROR`, original exception stored. |
 | Process killed / crash / Ctrl+C | Workflow `PENDING`; `sira resume <id>` continues from the last checkpoint. |
-| `sira resume` on an aborted run | Refused with a message (the checkpointed answer would replay as "quit"). |
+| `sira resume` on an aborted run | Forks at the checkpoint step, so the question is asked again (a new run id). |
 | Resume with a different installed Sira version | The CLI compares `app_version` before resuming and refuses with a message. |
 
 ### 5.4 Testing
@@ -263,7 +280,9 @@ sira resume <id>
      run inside a workflow → `DBOS.list_workflow_steps(id)` contains a
      `*__model.request` step (proves message serialization through SQLite).
   4. Reporter global fallback.
-  5. CLI `runs`; `resume` on `SUCCESS` (no workflow re-run) and on an aborted run.
+  5. CLI `runs`; `resume` on `SUCCESS` (no workflow re-run), on `ERROR`
+     (fork from the last completed step), and on an aborted run (fork at the
+     checkpoint, question asked again).
   6. Streaming: token events reach the reporter inside a workflow via the
      `event_stream_handler`.
 
@@ -390,7 +409,7 @@ must pass before push; `graphify update .` after code changes; PR assigned to
 - DBOS queues, scheduled workflows, Conductor.
 - OTLP logs and metrics (traces only).
 - `--run-id` / idempotency keys chosen by the user.
-- Forking an aborted run past its checkpointed "quit" answer.
+- `sira resume` with a user-chosen step (`fork_workflow` is used only at the last completed step or the last checkpoint).
 
 ## 9. Glossary
 
