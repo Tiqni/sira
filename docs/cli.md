@@ -69,6 +69,40 @@ uv run sira re-tailor \
 
 ---
 
+## `resume`
+
+Continue a killed, crashed, or failed run from its last checkpoint. Output files and the memory record are written exactly as for an uninterrupted run.
+
+```bash
+uv run sira resume <RUN_ID> [-v]
+```
+
+### Arguments
+
+| Argument | Description |
+|---|---|
+| `RUN_ID` | The run id printed by `tailor` / `re-tailor` (also shown by `sira runs`). |
+
+Behaviour by run state:
+
+| State | What happens |
+|---|---|
+| Completed | The stored result is reused; nothing is re-run. |
+| Interrupted (killed, Ctrl+C) | Resumed under the same run id. |
+| Failed (a stage raised) | Forked from the failed step into a new run id; earlier checkpoints are replayed. |
+| Aborted at a checkpoint | Forked at that checkpoint; the question is asked again. |
+| Started by another Sira version | Refused — start a new run. |
+
+## `runs`
+
+List recent runs with their status, job, start time, and duration.
+
+```bash
+uv run sira runs [--limit N]
+```
+
+---
+
 ## Options
 
 Every option below works on **both** commands, except `--resume-path`, which is
@@ -155,6 +189,7 @@ non-interactive job.
 | --- | --- |
 | `0` | The pipeline ran to the end. See the table below for what was written. |
 | `1` | The run failed, or you quit at an interactive checkpoint. |
+| `130` | Interrupted with Ctrl+C (the resume hint is printed). |
 
 Failures that produce exit code `1` include: a `JOB_URL` that is not `http(s)`, a
 resume file that does not exist or is empty, a resume format that cannot be converted,

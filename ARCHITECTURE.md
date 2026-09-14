@@ -287,6 +287,27 @@ sira/utils/
 
 ---
 
+## Durable Execution
+
+Every run is one DBOS workflow (`sira.tailor`) whose input is a `TailorInputs` snapshot (resume text, job content, model tiers, quality-gate settings, and the CLI metadata needed for post-processing). Inside it:
+
+```
+sira.tailor (workflow, id = run id)
+├─ sira.parse_resume  (child workflow)  ─ model-request steps (Parser)
+├─ sira.analyze_job   (child workflow)  ─ model-request steps (Analyst)
+├─ write → review → audit loop         ─ model-request steps (Writer, Reviewer, Auditor, Quality Gate)
+├─ sira.human_checkpoint (step)        ─ the interactive answer, checkpointed
+└─ report                              ─ model-request steps (Report)
+```
+
+- Every agent carries pydantic-ai's `DBOSDurability` capability: a model request that runs inside the workflow is a checkpointed step (with retries on transient errors). Outside a workflow (the job scraper, the memory cache parser) the capability is transparent.
+- Parser and Analyst are child workflows because DBOS requires a deterministic step order inside one workflow; each child owns its own sequence, so they may run concurrently.
+- DBOS only continues a run under the same executor id and application version. Sira uses a fresh executor id per process, so a new `sira tailor` never silently picks up an old run; continuation is explicit (`sira resume`) and pinned to the installed Sira version.
+- Continuation (`sira/workflows/continuation.py`): interrupted runs are resumed in place; failed runs are forked from the failed step (or the start of a failed child workflow, or the last checkpoint when the user aborted), which creates a new run id with the earlier checkpoints copied.
+- The system database is SQLite at `memory/dbos.sqlite3` (`SIRA_DBOS_DATABASE_URL` overrides it). Post-processing (output files, memory save) stays outside the workflow and is repeated by `resume`.
+
+---
+
 ## CLI
 
 Entry point: `sira/main.py` — Typer app, console script `sira`

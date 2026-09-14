@@ -212,6 +212,22 @@ uv run sira re-tailor \
   --model openai:gpt-4o-mini
 ```
 
+### `resume` / `runs` — Continue an interrupted run
+
+Every run is **durable**: each model request is checkpointed by [DBOS](https://docs.dbos.dev) in a local SQLite file (`memory/dbos.sqlite3`, override with `SIRA_DBOS_DATABASE_URL`). `sira tailor` prints a **Run ID** at start. If the process is killed, crashes, or a stage fails, continue from the last completed model request — earlier agents are replayed from their checkpoints, not called again:
+
+```bash
+uv run sira resume <RUN_ID>
+```
+
+A run that failed is continued as a **new** run id (printed as `Continued as run: …`); a run that was only interrupted keeps its id. If you answered "quit" at an interactive checkpoint, `resume` asks the question again. List recent runs and their status with:
+
+```bash
+uv run sira runs --limit 10
+```
+
+A run can only be resumed by the same Sira version that started it.
+
 ### Live progress & speed
 
 By default a **live progress dashboard** is shown in the terminal, updating as each pipeline stage completes. In non-TTY environments (CI, pipes) it degrades to plain line-by-line logging automatically.

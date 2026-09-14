@@ -27,6 +27,8 @@ uv run ruff check .                       # lint
 uv run ruff format .                      # format
 uv run sira tailor <JOB_URL> <RESUME_PATH> [--model … --fast -v -d]
 uv run sira re-tailor <JOB_ID> "<RECOMMENDATIONS>"
+uv run sira resume <RUN_ID>              # continue a killed/crashed/failed run from its last checkpoint
+uv run sira runs [--limit N]             # list recent runs and their status
 graphify update .                         # refresh the knowledge graph after code changes (AST-only, no API cost)
 ```
 
@@ -65,6 +67,8 @@ The flow spans several files; the order is **not** all inside the workflow:
 - `utils/validate_inputs.py` and the Makefile `run`/`make run` target are **deprecated/broken** — use `uv run sira …`.
 - `cover_letter_writer_agent` and `scraper_agent` exist but are **not wired into the workflow** (`job_scraper_agent` is the one the CLI uses).
 - `re-tailor` reuses the stored job posting (no re-scrape); if the original resume file is gone from disk, pass `--resume-path`.
+- **Durable execution (DBOS)**: `sira.workflows.tailor_workflow` is the DBOS workflow; every agent has `DBOSDurability`, so a model request inside it is a checkpointed step. Rules: define `@DBOS.workflow`/`@DBOS.step` functions at module level (registered before `durable_runtime()` launches); never interleave two step sequences in one workflow (`asyncio.gather` over agent runs is forbidden — use child workflows); run-time models must be strings; anything non-deterministic that affects control flow goes in a step (the checkpoint prompt is one). Tests get one DBOS runtime for the session from `tests/conftest.py`.
+- **Continuing runs**: `resume_workflow` only works for runs that never finished; failed runs are *forked* — see `sira/workflows/continuation.py` for which step to fork from. A resumed/forked run executes on DBOS's background thread, so the CLI installs a process-wide fallback reporter (`install_global_reporter`).
 
 ## Deeper references
 

@@ -169,7 +169,7 @@ Avoid these terms in generated content:
 
 **Production** (from `pyproject.toml`):
 
-- `pydantic-ai[groq,mistral,cohere,bedrock]>=2.43,<3`: Agent framework (xAI is an opt-in `xai` extra)
+- `pydantic-ai[dbos,groq,mistral,cohere,bedrock]>=2.43,<3`: Agent framework + DBOS durable execution (xAI is an opt-in `xai` extra)
 - `playwright>=1.56.0`: Web scraping
 - `html2text>=2025.4.15`: HTML → Markdown
 - `markitdown[docx,pdf]>=0.1.0`: DOCX/PDF → Markdown
