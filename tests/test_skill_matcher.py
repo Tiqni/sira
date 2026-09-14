@@ -334,6 +334,26 @@ async def test_match_skills_logs_how_many_skills_it_judges():
     assert any("2 of 3" in line for line in reporter.logs)
 
 
+async def test_match_skills_log_omits_literal_note_when_nothing_matched_literally():
+    from sira.workflows.agents import skill_matcher_agent
+    from sira.workflows.skill_matching import match_skills
+
+    reporter = _LogReporter()
+    with use_reporter(reporter), skill_matcher_agent.override(model=_table_judge({})):
+        await match_skills(_cv(), _job(["Rust", "Grit"], []))
+    line = next(line for line in reporter.logs if "Skill Matcher" in line)
+    assert "2 of 2" in line
+    assert "matched literally" not in line
+
+
+def test_judge_prompt_rejects_adjacent_work():
+    """The judge must not count related work as the skill itself."""
+    from sira.workflows.agents import skill_matcher_agent
+
+    prompt = " ".join(skill_matcher_agent._system_prompts)
+    assert "Adjacent work does not count" in prompt
+
+
 def test_build_matcher_prompt_numbers_skills():
     from sira.workflows.skill_matching import build_matcher_prompt
 

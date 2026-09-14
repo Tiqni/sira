@@ -88,10 +88,11 @@ async def match_skills(
     if not pending:
         return matches
 
+    literal_note = " (the rest matched literally)" if matches else ""
     _safe_report(
         reporter.log,
         f"\n🔎 Skill Matcher: judging {len(pending)} of {len(skills)} job skills "
-        "against your CV (the rest matched literally)...",
+        f"against your CV{literal_note}...",
     )
     try:
         result = await run_agent(
