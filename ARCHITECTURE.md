@@ -316,6 +316,7 @@ sira.tailor (workflow, id = run id)
 ├─ sira.analyze_job   (child workflow)  ─ model-request steps (Analyst)
 ├─ write → review → audit loop         ─ model-request steps (Writer, Reviewer, Auditor, Quality Gate)
 ├─ sira.human_checkpoint (step)        ─ the interactive answer, checkpointed
+├─ skill matcher                       ─ model-request step (Skill Matcher)
 └─ report                              ─ model-request steps (Report)
 ```
 
