@@ -26,7 +26,7 @@ async def test_parser_and_analyst_overlap(monkeypatch, sample_cv):
     async def _track(output):
         in_flight["count"] += 1
         in_flight["max"] = max(in_flight["max"], in_flight["count"])
-        await asyncio.sleep(0.02)
+        await asyncio.sleep(0.2)
         in_flight["count"] -= 1
         return DummyRunResult(output)
 

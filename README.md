@@ -212,6 +212,26 @@ uv run sira re-tailor \
   --model openai:gpt-4o-mini
 ```
 
+### `resume` / `runs` — Continue an interrupted run
+
+Every run is **durable**: each model request is checkpointed by [DBOS](https://docs.dbos.dev) in a local SQLite file (`memory/dbos.sqlite3`, override with `SIRA_DBOS_DATABASE_URL`). `sira tailor` prints a **Run ID** at the start and again at the end. It is not the **Job ID** printed with it — the Job ID names the memory record used by `re-tailor`; the Run ID names the durable run used by `resume`. If the process is killed, crashes, or a stage fails, continue from the last completed model request — earlier agents are replayed from their checkpoints, not called again:
+
+> **Privacy:** `memory/dbos.sqlite3` stores each run's inputs and checkpoints — your full resume text, the job posting, every model response (including the tailored CV) and your answers at interactive checkpoints — pickled, with your user's default file permissions. It never leaves your machine. Delete the file to purge it, or point `SIRA_DBOS_DATABASE_URL` at another location. Rows are readable only by the same Sira and `pydantic-ai` versions that wrote them.
+
+```bash
+uv run sira resume <RUN_ID>
+```
+
+A run that failed is continued as a **new** run id (printed as `Continued as run: …`); a run that was only interrupted keeps its id. If you answered "quit" at an interactive checkpoint, `resume` asks the question again. List recent runs and their status with:
+
+```bash
+uv run sira runs --limit 10
+```
+
+A run can only be resumed by the same Sira version that started it.
+
+Durability covers the pipeline (parsing, analysis, writing, review, audit, report). The steps before it — resume conversion, the parsed-resume cache lookup, and scraping the job posting — are quick pre-flight work and are not checkpointed: a crash there leaves no run to resume, so just run `sira tailor` again.
+
 ### Live progress & speed
 
 By default a **live progress dashboard** is shown in the terminal, updating as each pipeline stage completes. In non-TTY environments (CI, pipes) it degrades to plain line-by-line logging automatically.

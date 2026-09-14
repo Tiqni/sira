@@ -107,3 +107,42 @@ def _reset_agent_runtime_state():
     yield
     reset_agent_models()
     reset_quality_gate()
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _dbos_runtime(tmp_path_factory):
+    """One DBOS runtime for the whole suite, on a throwaway SQLite file.
+
+    Workflows are registered at import, so import them before launching.
+
+    DBOS installs its own thread pool as the *default executor* of whatever
+    event loop is running. pytest-anyio gives every test a fresh loop and shuts
+    that loop's default executor down on teardown — which would kill DBOS's
+    shared pool for every later test. In tests, leave the loop's executor alone.
+
+    This patch hides that production behaviour, which is why the CLI enters
+    `durable_runtime()` outside `asyncio.run` (see `sira/main.py`).
+    """
+    import sira.workflows  # noqa: F401
+    from dbos import DBOS
+    from sira.durability import durable_runtime
+
+    async def _keep_loop_executor(cls) -> None:
+        return None
+
+    db = tmp_path_factory.mktemp("dbos") / "dbos.sqlite3"
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr(
+            DBOS, "_configure_asyncio_thread_pool", classmethod(_keep_loop_executor)
+        )
+        with durable_runtime(f"sqlite:///{db}"):
+            yield
+
+
+@pytest.fixture(autouse=True)
+def _clear_global_reporter():
+    """Never let a test's fallback reporter leak into the next test."""
+    from sira.reporting.base import install_global_reporter
+
+    yield
+    install_global_reporter(None)

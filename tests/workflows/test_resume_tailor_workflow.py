@@ -10,7 +10,7 @@ from sira.models.agents.output import (
     JobAnalysis,
     ReviewResult,
 )
-from sira.workflows import ResumeTailorWorkflow
+from sira.workflows import PipelineError, ResumeTailorWorkflow
 
 
 class DummyRunResult:
@@ -89,7 +89,7 @@ async def test_workflow_uses_provided_original_cv_without_reparsing(
     monkeypatch.setattr("sira.workflows.agents.reviewer_agent.run", run_reviewer)
     monkeypatch.setattr("sira.workflows.agents.auditor_agent.run", run_auditor)
 
-    result = await ResumeTailorWorkflow().run(sample_cv, "files/job_posting.md")
+    result = await ResumeTailorWorkflow().run("# resume", "files/job_posting.md")
 
     with subtests.test("job_title"):
         assert result.job_title == "Platform Engineer"
@@ -102,8 +102,10 @@ async def test_workflow_uses_provided_original_cv_without_reparsing(
 
 
 @pytest.mark.anyio
-async def test_analyst_failure_after_retries_exits(monkeypatch, sample_cv) -> None:
-    """Analyst failure after all retries exits with a user-facing message."""
+async def test_analyst_failure_after_retries_raises_pipeline_error(
+    monkeypatch, sample_cv
+) -> None:
+    """Analyst failure after all retries raises PipelineError with a user-facing message."""
 
     async def run_parser(*args, **kwargs):
         return DummyRunResult(sample_cv)
@@ -114,10 +116,10 @@ async def test_analyst_failure_after_retries_exits(monkeypatch, sample_cv) -> No
     monkeypatch.setattr("sira.workflows.agents.resume_parser_agent.run", run_parser)
     monkeypatch.setattr("sira.workflows.agents.analyst_agent.run", always_fail)
 
-    with pytest.raises(SystemExit) as excinfo:
-        await ResumeTailorWorkflow().run(sample_cv, "files/job_posting.md")
+    with pytest.raises(PipelineError) as excinfo:
+        await ResumeTailorWorkflow().run("# resume", job_content="job posting")
 
-    # The exit carries a user-facing message that surfaces the underlying error.
+    # The error carries a user-facing message that surfaces the underlying error.
     assert "simulated agent unavailable" in str(excinfo.value)
 
 
@@ -392,7 +394,7 @@ async def test_non_interactive_never_prompts(monkeypatch, sample_cv):
     _base_agent_mocks(monkeypatch, sample_cv, auditor_result=_make_failing_audit())
 
     result = await ResumeTailorWorkflow(interactive=False, write_attempts=1).run(
-        sample_cv, job_content="job description"
+        "# resume", job_content="job description"
     )
     assert result.passed is False
 
@@ -408,7 +410,7 @@ async def test_interactive_audit_failure_quit(monkeypatch, sample_cv):
 
     with pytest.raises(UserAbortedError):
         await ResumeTailorWorkflow(interactive=True, write_attempts=1).run(
-            sample_cv, job_content="job description"
+            "# resume", job_content="job description"
         )
 
 
@@ -420,7 +422,7 @@ async def test_interactive_audit_failure_continue(monkeypatch, sample_cv):
     _base_agent_mocks(monkeypatch, sample_cv, auditor_result=_make_failing_audit())
 
     result = await ResumeTailorWorkflow(interactive=True, write_attempts=1).run(
-        sample_cv, job_content="job description"
+        "# resume", job_content="job description"
     )
     assert result.passed is False
 
@@ -446,7 +448,7 @@ async def test_interactive_audit_failure_feedback_then_pass(monkeypatch, sample_
     monkeypatch.setattr("builtins.input", lambda _: next(responses))
 
     result = await ResumeTailorWorkflow(interactive=True, write_attempts=1).run(
-        sample_cv, job_content="job description"
+        "# resume", job_content="job description"
     )
 
     assert result.passed is True
@@ -470,7 +472,7 @@ async def test_interactive_audit_failure_feedback_still_fails_then_continue(
     monkeypatch.setattr("builtins.input", lambda _: next(responses))
 
     result = await ResumeTailorWorkflow(interactive=True, write_attempts=1).run(
-        sample_cv, job_content="job description"
+        "# resume", job_content="job description"
     )
     assert result.passed is False
 
@@ -494,7 +496,7 @@ async def test_interactive_audit_failure_feedback_still_fails_then_quit(
 
     with pytest.raises(UserAbortedError):
         await ResumeTailorWorkflow(interactive=True, write_attempts=1).run(
-            sample_cv, job_content="job description"
+            "# resume", job_content="job description"
         )
 
 
@@ -519,7 +521,7 @@ async def test_interactive_weak_match_quit(monkeypatch, sample_cv):
 
     with pytest.raises(UserAbortedError):
         await ResumeTailorWorkflow(interactive=True, write_attempts=1).run(
-            sample_cv, job_content="job description"
+            "# resume", job_content="job description"
         )
 
 
@@ -536,7 +538,7 @@ async def test_interactive_weak_match_continue(monkeypatch, sample_cv):
     )
 
     result = await ResumeTailorWorkflow(interactive=True, write_attempts=1).run(
-        sample_cv, job_content="job description"
+        "# resume", job_content="job description"
     )
     assert result.passed is True  # audit passed; only report is weak
 
@@ -573,7 +575,7 @@ async def test_interactive_weak_match_feedback_then_strong(monkeypatch, sample_c
     monkeypatch.setattr("builtins.input", lambda _: next(responses))
 
     result = await ResumeTailorWorkflow(interactive=True, write_attempts=1).run(
-        sample_cv, job_content="job description"
+        "# resume", job_content="job description"
     )
 
     assert result.passed is True
@@ -598,7 +600,7 @@ async def test_interactive_weak_match_feedback_still_weak_then_continue(
     monkeypatch.setattr("builtins.input", lambda _: next(responses))
 
     result = await ResumeTailorWorkflow(interactive=True, write_attempts=1).run(
-        sample_cv, job_content="job description"
+        "# resume", job_content="job description"
     )
     assert result.passed is True
 
@@ -618,6 +620,6 @@ async def test_checkpoint_non_tty_auto_continues(monkeypatch, sample_cv):
     )
 
     result = await ResumeTailorWorkflow(interactive=True, write_attempts=1).run(
-        sample_cv, job_content="job description"
+        "# resume", job_content="job description"
     )
     assert result.passed is False

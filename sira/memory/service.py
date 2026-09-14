@@ -51,6 +51,7 @@ class ResumeMemoryService:
         self,
         *,
         path: str | None,
+        content: str | None = None,
     ) -> ResolvedOriginalResume:
         """Resolve the original resume to use for a tailoring run.
 
@@ -86,6 +87,10 @@ class ResumeMemoryService:
             ``ResolvedOriginalResume`` containing the active source record and
             the parsed ``CV``.
 
+        Args:
+            content: Optional resume text to use instead of reading the file
+                at *path* (the path is still recorded as the source).
+
         Raises:
             MissingOriginalResumeError: When *path* is ``None`` and no original
                 resume has been stored yet.
@@ -106,7 +111,11 @@ class ResumeMemoryService:
                 )
             file_path = latest.path  # already normalised when it was stored
 
-        content = Path(file_path).read_text(encoding="utf-8")
+        # `content` lets a continued run save its result even when the file
+        # has moved or been deleted since the run started; `path` is still
+        # recorded as the source, so the parsed-resume cache keeps working.
+        if content is None:
+            content = Path(file_path).read_text(encoding="utf-8")
         content_hash = _hash_content(content)
 
         # ---- Step 2: Upsert source record and set it active -------------
@@ -155,6 +164,7 @@ class ResumeMemoryService:
         self,
         *,
         path: str | None,
+        content: str | None = None,
     ) -> ResolvedOriginalResume:
         """Async variant of ``resolve_original_resume``.
 
@@ -173,7 +183,11 @@ class ResumeMemoryService:
                 )
             file_path = latest.path
 
-        content = Path(file_path).read_text(encoding="utf-8")
+        # `content` lets a continued run save its result even when the file
+        # has moved or been deleted since the run started; `path` is still
+        # recorded as the source, so the parsed-resume cache keeps working.
+        if content is None:
+            content = Path(file_path).read_text(encoding="utf-8")
         content_hash = _hash_content(content)
 
         # ---- Step 2: Upsert source record and set it active -------------

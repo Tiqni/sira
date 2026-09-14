@@ -615,3 +615,34 @@ def test_resolve_raises_resume_memory_error_when_parser_fails(tmp_path: Path) ->
 
     with pytest.raises(ResumeMemoryError, match="Failed to parse"):
         svc.resolve_original_resume(path=str(resume_file))
+
+
+def test_resolve_with_content_does_not_read_the_file(tmp_path: Path, subtests) -> None:
+    """A continued run passes the text it read at start; the file may be gone."""
+    gone = tmp_path / "moved_away.md"  # never written
+    svc, repo, parser = _make_service()
+
+    result = svc.resolve_original_resume(
+        path=str(gone), content="# Jane Doe\n\nPython developer."
+    )
+
+    with subtests.test("recorded path is the original path"):
+        assert result.source.path == str(gone)
+    with subtests.test("parsed once from the given content"):
+        assert parser.call_count == 1
+        assert isinstance(result.cv, CV)
+    with subtests.test("second call with the same content hits the parse cache"):
+        again = svc.resolve_original_resume(
+            path=str(gone), content="# Jane Doe\n\nPython developer."
+        )
+        assert parser.call_count == 1
+        assert again.source.id == result.source.id
+
+
+@pytest.mark.anyio
+async def test_aresolve_with_content_does_not_read_the_file(tmp_path: Path) -> None:
+    gone = tmp_path / "moved_away.md"
+    svc, _, parser = _make_service()
+    result = await svc.aresolve_original_resume(path=str(gone), content="# Jane")
+    assert result.source.path == str(gone)
+    assert parser.call_count == 1

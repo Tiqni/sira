@@ -47,10 +47,21 @@ _active_reporter: contextvars.ContextVar[ProgressReporter | None] = (
     contextvars.ContextVar("active_reporter", default=None)
 )
 
+# Process-wide fallback. A workflow continued by `sira resume` runs on DBOS's
+# background thread, where the contextvar above is not set; the CLI installs
+# its reporter here so progress output keeps working on that path.
+_global_reporter: ProgressReporter | None = None
+
+
+def install_global_reporter(reporter: ProgressReporter | None) -> None:
+    """Set (or clear, with None) the fallback reporter for every thread."""
+    global _global_reporter
+    _global_reporter = reporter
+
 
 def get_active_reporter() -> ProgressReporter:
-    """Return the reporter installed for the current async context."""
-    return _active_reporter.get() or NullReporter()
+    """Return the reporter for the current context, else the global one, else a NullReporter."""
+    return _active_reporter.get() or _global_reporter or NullReporter()
 
 
 @contextlib.contextmanager
