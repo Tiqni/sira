@@ -204,6 +204,18 @@ def _print_report_to_console(report: FinalReport) -> None:
     else:
         console.print("  Soft: (none)")
 
+    hard_total = len(gap.covered_hard_skills) + len(gap.missing_hard_skills)
+    soft_total = len(gap.covered_soft_skills) + len(gap.missing_soft_skills)
+    console.print(
+        f"\nSKILLS COVERED — Hard: {len(gap.covered_hard_skills)}/{hard_total} "
+        f"({gap.hard_skill_coverage_percent:.1f}%) · "
+        f"Soft: {len(gap.covered_soft_skills)}/{soft_total} "
+        f"({gap.soft_skill_coverage_percent:.1f}%)"
+    )
+    for skill in (*gap.covered_hard_skills, *gap.covered_soft_skills):
+        quote = gap.skill_evidence.get(skill, "")
+        console.print(f'  ✅ {skill} — "{quote}"' if quote else f"  ✅ {skill}")
+
     console.print("\nSUGGESTIONS TO STRENGTHEN")
     for suggestion in report.suggestions_to_strengthen:
         console.print(f"  → {suggestion}")
