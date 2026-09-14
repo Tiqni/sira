@@ -577,6 +577,41 @@ async def test_final_report_score_and_verdict_are_computed_in_python(
 
 
 @pytest.mark.anyio
+async def test_report_survives_skill_matcher_step_retry_exhaustion(
+    monkeypatch, sample_cv, subtests
+):
+    """A judge that fails inside DBOS degrades to literal matching; the report still exists."""
+    from dbos import error as dbos_error
+
+    _patch_stdin(monkeypatch, is_tty=False)
+    _base_agent_mocks(monkeypatch, sample_cv, auditor_result=_make_passing_audit())
+
+    async def run_matcher_broken(*args, **kwargs):
+        raise dbos_error.DBOSMaxStepRetriesExceeded(
+            "sira.skill_matcher", 3, [RuntimeError("429")]
+        )
+
+    monkeypatch.setattr(
+        "sira.workflows.agents.skill_matcher_agent.run", run_matcher_broken
+    )
+
+    result = await ResumeTailorWorkflow(write_attempts=1).run(
+        "# resume", job_content="job"
+    )
+    report = result.final_report
+    assert report is not None
+    with subtests.test("literal_hit_kept"):
+        assert report.gaps.covered_hard_skills == ["Python"]
+    with subtests.test("judged_skills_missing"):
+        assert report.gaps.missing_hard_skills == ["Kubernetes"]
+        assert report.gaps.missing_soft_skills == ["Communication"]
+    with subtests.test("verdict_weak"):
+        assert (
+            report.overall_recommendation == "Weak Match"
+        )  # hard 50, soft 0, keywords 50 -> 40
+
+
+@pytest.mark.anyio
 async def test_interactive_weak_match_feedback_then_strong(monkeypatch, sample_cv):
     """Feedback triggers a re-run; second cycle produces Strong Match."""
     writer_prompts = []

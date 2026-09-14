@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 
+from dbos import error as dbos_error
 from pydantic_ai.exceptions import AgentRunError
 from pydantic_ai.usage import RunUsage, UsageLimits
 
@@ -47,8 +48,9 @@ async def match_skills(
 
     Skills whose text appears in the CV are covered without a model call. The
     rest go to ``skill_matcher_agent`` in one request. If that request fails
-    for good (retries or usage limit exhausted, provider error), the pending
-    skills stay undecided — they count as missing, exactly as before semantic
+    for good (retries or usage limit exhausted, provider error, or DBOS
+    step-retry exhaustion inside the durable workflow), the pending skills
+    stay undecided — they count as missing, exactly as before semantic
     matching existed — and a warning is logged. This never fails the run.
     """
     reporter = get_active_reporter()
@@ -73,7 +75,7 @@ async def match_skills(
             usage_limits=usage_limits,
             deps=tuple(pending),
         )
-    except AgentRunError as exc:
+    except (AgentRunError, dbos_error.DBOSMaxStepRetriesExceeded) as exc:
         _safe_report(
             reporter.log,
             f"   ⚠️ Skill matcher unavailable ({type(exc).__name__}) — "
