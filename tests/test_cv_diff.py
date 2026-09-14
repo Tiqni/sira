@@ -205,3 +205,29 @@ def test_gap_analysis_when_tailored_cv_is_none_keyword_coverage_is_zero(
         assert gap.keyword_coverage_percent == 0.0
     with subtests.test("covered_keywords_empty"):
         assert gap.covered_keywords == []
+
+
+# ---------------------------------------------------------------------------
+# Output model contracts for semantic matching
+# ---------------------------------------------------------------------------
+
+
+def test_gap_analysis_new_fields_default_empty(subtests):
+    from sira.models.agents.output import GapAnalysis, SkillMatch, SkillMatchResult
+
+    gap = GapAnalysis()
+    with subtests.test("covered_hard_skills"):
+        assert gap.covered_hard_skills == []
+    with subtests.test("covered_soft_skills"):
+        assert gap.covered_soft_skills == []
+    with subtests.test("skill_evidence"):
+        assert gap.skill_evidence == {}
+    with subtests.test("hard_pct"):
+        assert gap.hard_skill_coverage_percent == 0.0
+    with subtests.test("soft_pct"):
+        assert gap.soft_skill_coverage_percent == 0.0
+    with subtests.test("skill_match_evidence_default"):
+        assert SkillMatch(skill="Python", covered=True).evidence == ""
+    with subtests.test("skill_match_result_roundtrip"):
+        result = SkillMatchResult(matches=[SkillMatch(skill="Python", covered=False)])
+        assert result.model_dump()["matches"][0]["covered"] is False

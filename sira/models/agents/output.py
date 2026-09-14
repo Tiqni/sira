@@ -99,13 +99,53 @@ class CVDiff(BaseModel):
 
 
 class GapAnalysis(BaseModel):
-    """Gap analysis between job requirements and the original CV."""
+    """Gap analysis between job requirements and the original CV.
+
+    Skill coverage is decided by ``compute_gap_analysis`` from ``SkillMatch``
+    results (literal pre-pass plus the skill matcher agent). Keyword coverage
+    is a literal substring check on the tailored CV — the ATS view.
+    """
 
     missing_hard_skills: list[str] = []
     missing_soft_skills: list[str] = []
+    covered_hard_skills: list[str] = []
+    covered_soft_skills: list[str] = []
+    skill_evidence: dict[str, str] = Field(
+        default_factory=dict,
+        description="Covered skill -> short CV quote; empty string for literal hits.",
+    )
+    hard_skill_coverage_percent: float = 0.0
+    soft_skill_coverage_percent: float = 0.0
     covered_keywords: list[str] = []
     missing_keywords: list[str] = []
     keyword_coverage_percent: float = 0.0
+
+
+class SkillMatch(BaseModel):
+    """One job skill judged against the CV."""
+
+    skill: str = Field(
+        description="The job skill, exactly as listed in the job analysis."
+    )
+    covered: bool
+    evidence: str = Field(
+        default="",
+        description="Short quote from the CV that shows the skill; empty when not covered.",
+    )
+
+
+class SkillMatchResult(BaseModel):
+    """Output of the skill matcher agent: one entry per skill it was asked about."""
+
+    matches: list[SkillMatch]
+
+
+class ReportNarrative(BaseModel):
+    """The only fields the report agent writes; the workflow computes the rest."""
+
+    suggestions_to_strengthen: list[str] = []
+    audit_summary: str
+    recommendation_rationale: str
 
 
 class FinalReport(BaseModel):
