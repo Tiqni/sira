@@ -179,3 +179,149 @@ async def test_run_agent_omits_deps_when_none(monkeypatch):
     monkeypatch.setattr(agents_mod.report_agent, "run", fake_run)
     await agents_mod.run_agent(agents_mod.report_agent, "p", agent_label="Report")
     assert "deps" not in seen
+
+
+# ---------------------------------------------------------------------------
+# match_skills orchestration
+# ---------------------------------------------------------------------------
+
+from sira.models.agents.output import CV, JobAnalysis, WorkExperience  # noqa: E402
+from sira.reporting.base import NullReporter, use_reporter  # noqa: E402
+
+
+class _LogReporter(NullReporter):
+    def __init__(self) -> None:
+        self.logs: list[str] = []
+
+    def log(self, msg: str) -> None:
+        self.logs.append(msg)
+
+
+def _cv() -> CV:
+    return CV(
+        full_name="A",
+        summary="Engineer who ran Kubernetes clusters and mentored juniors.",
+        skills=["Python"],
+        experience=[
+            WorkExperience(
+                company="Acme",
+                role="Eng",
+                dates="2020",
+                highlights=["Mentor to 5 people"],
+            )
+        ],
+        education=[],
+    )
+
+
+def _job(hard: list[str], soft: list[str]) -> JobAnalysis:
+    return JobAnalysis(
+        job_title="t",
+        company_name="c",
+        summary="s",
+        hard_skills=hard,
+        soft_skills=soft,
+        key_responsibilities=[],
+        keywords_to_target=[],
+    )
+
+
+def _table_judge(
+    table: dict[str, tuple[bool, str]], calls: list[list[str]] | None = None
+):
+    """Judge that answers from a table for whatever skills the prompt asks about.
+
+    Built on ``_judge_model`` (defined above in this file) so it works with the
+    agent's DBOSDurability streaming path.
+    """
+
+    def answer(messages) -> dict:
+        asked = _skills_in_prompt(messages)
+        if calls is not None:
+            calls.append(asked)
+        matches = []
+        for skill in asked:
+            covered, evidence = table.get(skill, (False, ""))
+            matches.append({"skill": skill, "covered": covered, "evidence": evidence})
+        return {"matches": matches}
+
+    return _judge_model(answer)
+
+
+async def test_match_skills_skips_model_when_everything_is_literal():
+    from sira.workflows.agents import skill_matcher_agent
+    from sira.workflows.skill_matching import match_skills
+
+    calls: list[list[str]] = []
+    with skill_matcher_agent.override(model=_table_judge({}, calls)):
+        matches = await match_skills(_cv(), _job(["Python", "kubernetes"], []))
+    assert calls == []
+    assert matches["Python"].covered and matches["kubernetes"].covered
+
+
+async def test_match_skills_sends_only_pending_skills_and_merges(subtests):
+    from sira.workflows.agents import skill_matcher_agent
+    from sira.workflows.skill_matching import match_skills
+
+    calls: list[list[str]] = []
+    table = {
+        "Technical leadership and mentorship": (True, "Mentor to 5 people"),
+        "Rust": (False, ""),
+    }
+    with skill_matcher_agent.override(model=_table_judge(table, calls)):
+        matches = await match_skills(
+            _cv(), _job(["Python", "Rust"], ["Technical leadership and mentorship"])
+        )
+    with subtests.test("only_pending_sent"):
+        assert calls == [["Rust", "Technical leadership and mentorship"]]
+    with subtests.test("literal_kept"):
+        assert matches["Python"].covered is True and matches["Python"].evidence == ""
+    with subtests.test("judge_merged"):
+        assert (
+            matches["Technical leadership and mentorship"].evidence
+            == "Mentor to 5 people"
+        )
+        assert matches["Rust"].covered is False
+
+
+async def test_match_skills_dedupes_skills_listed_as_hard_and_soft():
+    from sira.workflows.agents import skill_matcher_agent
+    from sira.workflows.skill_matching import match_skills
+
+    calls: list[list[str]] = []
+    with skill_matcher_agent.override(model=_table_judge({"Rust": (False, "")}, calls)):
+        await match_skills(_cv(), _job(["Rust"], ["Rust"]))
+    assert calls == [["Rust"]]
+
+
+async def test_match_skills_falls_back_to_literal_when_judge_fails():
+    from sira.workflows.agents import skill_matcher_agent
+    from sira.workflows.skill_matching import match_skills
+
+    broken = _judge_model(
+        lambda messages: {"matches": []}
+    )  # never answers -> retries exhausted
+    reporter = _LogReporter()
+    with use_reporter(reporter), skill_matcher_agent.override(model=broken):
+        matches = await match_skills(_cv(), _job(["Python", "Rust"], []))
+    assert matches["Python"].covered is True
+    assert "Rust" not in matches
+    assert any("falling back to literal" in line for line in reporter.logs)
+
+
+async def test_match_skills_logs_how_many_skills_it_judges():
+    from sira.workflows.agents import skill_matcher_agent
+    from sira.workflows.skill_matching import match_skills
+
+    reporter = _LogReporter()
+    with use_reporter(reporter), skill_matcher_agent.override(model=_table_judge({})):
+        await match_skills(_cv(), _job(["Python", "Rust"], ["Grit"]))
+    assert any("2 of 3" in line for line in reporter.logs)
+
+
+def test_build_matcher_prompt_numbers_skills():
+    from sira.workflows.skill_matching import build_matcher_prompt
+
+    prompt = build_matcher_prompt("Summary: x", ["A", "B"])
+    assert prompt.endswith("Skills to judge:\n1. A\n2. B")
+    assert prompt.startswith("CV:\nSummary: x")
