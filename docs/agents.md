@@ -14,7 +14,8 @@ what each one produces, how often it retries, and whether the quality gate score
 | 3 | `writer_agent` | `CV` | 2 | **yes** | stage 3 and refinement |
 | 4 | `reviewer_agent` | `ReviewResult` | 5 | no | stage 4 |
 | 5 | `auditor_agent` | `AuditResult` | 2 | **yes** | stage 5 |
-| 6 | `report_agent` | `FinalReport` | 5 | no | stage 6 |
+| 6 | `skill_matcher_agent` | `SkillMatchResult` | 3 | no | stage 6, before the report |
+| 7 | `report_agent` | `ReportNarrative` | 5 | no | stage 6 |
 | — | `quality_gate_agent` | `QualityCheckResult` | 2 | n/a | validator for gated agents |
 | — | `cover_letter_writer_agent` | `str` | 2 | **yes** | **not wired into the workflow** |
 | — | `scraper_agent` | `JobAnalysis` | 5 | no | legacy, **not used by the CLI** |
@@ -48,8 +49,9 @@ flowchart TD
 
     CV0 --> D["compute_cv_diff()<br/>pure Python"]
     CV1 --> D --> CVD["CVDiff"]
-    CV0 --> G["compute_gap_analysis()<br/>pure Python"]
-    JA --> G --> GA["GapAnalysis"]
+    CV0 --> M["match_skills()<br/>literal pre-pass + skill_matcher_agent"]
+    JA --> M --> G["compute_gap_analysis()<br/>compute_match_score()<br/>pure Python"]
+    G --> GA["GapAnalysis + score + verdict"]
 
     CVD --> RP["report_agent"]
     GA --> RP
@@ -57,9 +59,10 @@ flowchart TD
     RP --> FR["FinalReport"]
 ```
 
-Everything ending in `_agent` is a model call. `compute_cv_diff()` and
-`compute_gap_analysis()` are deterministic Python — no model decides what the report
-says you are missing.
+Everything ending in `_agent` is a model call. The skill matcher answers one yes/no per
+job skill and quotes the CV line; `compute_gap_analysis()`, `compute_match_score()` and
+`compute_recommendation()` are deterministic Python over those answers — no model
+decides the score or the verdict.
 
 ## The quality gate
 

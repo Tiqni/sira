@@ -8,7 +8,8 @@ sira/                            # the Python package
 ├── __main__.py                  # `python -m sira` entry point
 ├── workflows/
 │   ├── __init__.py              # ResumeTailorWorkflow — the 6-stage pipeline
-│   └── agents.py                # every agent, plus model/quality-gate machinery
+│   ├── agents.py                # every agent, plus model/quality-gate machinery
+│   └── skill_matching.py        # match_skills: pre-pass → skill judge → fallback
 ├── models/
 │   ├── agents/
 │   │   ├── output.py            # the typed contracts between stages
@@ -28,7 +29,8 @@ sira/                            # the Python package
 │   ├── playwright.py            # read_job_content_file (legacy agent tool)
 │   └── job_scraper_helpers.py   # HTML→Markdown, placeholder detection, cleanup
 └── utils/                       # no model calls live in here
-    ├── cv_diff.py               # CVDiff + GapAnalysis, pure Python
+    ├── cv_diff.py               # CVDiff + GapAnalysis + match score, pure Python
+    ├── skill_matching.py        # CV text rendering + literal skill pre-pass
     ├── markdown_writer.py       # generate_resume, generate_report_markdown
     ├── resume_converter.py      # DOCX/PDF → Markdown (markitdown)
     ├── resume_output_converter.py
@@ -86,8 +88,9 @@ Three things that catch people out:
    a URL.
 2. **`--model` mutates module-level globals** in `workflows/agents.py`, and is applied
    before the scraper for exactly that reason.
-3. **`CVDiff` and `GapAnalysis` are computed in pure Python** in `utils/cv_diff.py`.
-   The report agent writes prose around numbers it did not choose.
+3. **Gap analysis, match score and verdict are computed in pure Python** in
+   `utils/cv_diff.py` from the skill matcher's per-skill verdicts. The report agent
+   writes prose around numbers it did not choose.
 
 ## Progress reporting
 

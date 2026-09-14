@@ -96,11 +96,20 @@ Stages 3-5 form the **Write → Review → Audit inner loop**: after the initial
 - **Retries**: 5
 - **Quality Gate**: Yes — validated by `_validate_auditor`
 
-### 6. Report Generator (`report_agent`)
+### 6. Skill Matcher (`skill_matcher_agent`)
 
-- **Responsibility**: Write the narrative section of the self-review report. Receives pre-computed CVDiff, GapAnalysis, AuditResult, ReviewResult, and JobAnalysis as structured JSON.
-- **Output**: `FinalReport` (overall_recommendation, match_score, suggestions_to_strengthen, audit_summary, recommendation_rationale, passed)
-- **Key Design**: CVDiff and GapAnalysis are computed in **pure Python** (cv_diff.py), not by the LLM. The report agent only produces narrative fields.
+- **Responsibility**: Judge, per job skill, whether the **original** CV shows the same concept even in different words ("mentor to ~30 engineers" covers "Technical leadership and mentorship"). Runs inside the report phase after a pure-Python literal pre-pass, so it only sees skills that did not appear verbatim in the CV.
+- **Input**: The whole CV rendered as plain text (`utils/skill_matching.py::render_cv_text`) plus a numbered skill list; the expected skill list also travels as `deps` so the validator can check the answer.
+- **Output**: `SkillMatchResult` — one `SkillMatch(skill, covered, evidence)` per skill; `evidence` is a CV quote (≤ 200 chars) or empty.
+- **Validator**: `_validate_skill_matches` — `ModelRetry` unless exactly the requested skills come back; canonicalises names; blanks evidence for uncovered skills.
+- **Retries**: 3 · **Tier**: fast · **Quality Gate**: No
+- **Fallback**: on `AgentRunError` the undecided skills stay "missing" (pre-semantic behaviour) and a warning is logged. The run never fails because of the matcher.
+
+### 7. Report Generator (`report_agent`)
+
+- **Responsibility**: Write the narrative section of the self-review report. Receives the computed match score and verdict plus CVDiff, GapAnalysis (with evidence), AuditResult, ReviewResult, and JobAnalysis as structured JSON.
+- **Output**: `ReportNarrative` (suggestions_to_strengthen, audit_summary, recommendation_rationale)
+- **Key Design**: every number in the report is computed in Python: `compute_gap_analysis`, `compute_match_score`, `compute_recommendation` in `cv_diff.py`. The model explains them; it cannot change them.
 - **Retries**: 5
 - **Quality Gate**: No
 
@@ -136,12 +145,15 @@ All models are defined in `sira/models/agents/output.py` using Pydantic v2.
 
 ### Diff & Report Models
 
-| Model              | Purpose                               | Key Fields                                                                                                                                                                                                           |
-| ------------------ | ------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `CVDiff`           | Structural diff original vs. tailored | `summary_changed`, `skills_reordered`, `skills_deprioritized`, `experience_changes`, `sections_modified`                                                                                                             |
-| `ExperienceChange` | Per-role bullet changes               | `role`, `company`, `bullets_rephrased`, `bullets_unchanged`                                                                                                                                                          |
-| `GapAnalysis`      | Skill/keyword gap metrics             | `missing_hard_skills`, `missing_soft_skills`, `covered_keywords`, `missing_keywords`, `keyword_coverage_percent`                                                                                                     |
-| `FinalReport`      | Complete self-review output           | `job_title`, `company_name`, `overall_recommendation` (Strong/Partial/Weak Match), `match_score` (0–100), `what_changed`, `gaps`, `suggestions_to_strengthen`, `audit_summary`, `recommendation_rationale`, `passed` |
+| Model              | Purpose                                    | Key Fields                                                                                                                                                                                                                                     |
+| ------------------ | ------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `CVDiff`           | Structural diff original vs. tailored      | `summary_changed`, `skills_reordered`, `skills_deprioritized`, `experience_changes`, `sections_modified`                                                                                                                                       |
+| `ExperienceChange` | Per-role bullet changes                    | `role`, `company`, `bullets_rephrased`, `bullets_unchanged`                                                                                                                                                                                    |
+| `SkillMatch`       | One job skill judged against the CV        | `skill`, `covered`, `evidence` (CV quote, empty when not covered)                                                                                                                                                                              |
+| `SkillMatchResult` | Skill matcher agent output                 | `matches` (list of `SkillMatch`, one per requested skill)                                                                                                                                                                                      |
+| `GapAnalysis`      | Skill/keyword gap metrics                  | `missing_hard_skills`, `missing_soft_skills`, `covered_hard_skills`, `covered_soft_skills`, `skill_evidence`, `hard_skill_coverage_percent`, `soft_skill_coverage_percent`, `covered_keywords`, `missing_keywords`, `keyword_coverage_percent` |
+| `ReportNarrative`  | Narrative fields written by `report_agent` | `suggestions_to_strengthen`, `audit_summary`, `recommendation_rationale`                                                                                                                                                                       |
+| `FinalReport`      | Complete self-review output                | `job_title`, `company_name`, `overall_recommendation` (Strong/Partial/Weak Match), `match_score` (0–100), `what_changed`, `gaps`, `suggestions_to_strengthen`, `audit_summary`, `recommendation_rationale`, `passed`                           |
 
 ### Scraping Model
 
@@ -175,9 +187,11 @@ All models are defined in `sira/models/agents/output.py` using Pydantic v2.
    │   └── If failed: retry WRITING → REVIEWING → AUDITING (up to 3 write attempts)
    └── GENERATING_REPORT:
        ├── compute_cv_diff(original, tailored) → CVDiff (pure Python, no LLM)
-       ├── compute_gap_analysis(original, tailored, job) → GapAnalysis (pure Python)
-       └── report_agent: diff + gaps + audit + review → narrative fields
-           └── Workflow assembles FinalReport from narrative + computed data
+       ├── match_skills(original, job): literal pre-pass → skill_matcher_agent (one call) → {skill: SkillMatch}
+       ├── compute_gap_analysis(original, tailored, job, skill_matches) → GapAnalysis (pure Python)
+       ├── compute_match_score(gap) → 0–100; compute_recommendation(score, gap) → verdict (pure Python)
+       └── report_agent: score + verdict + diff + gaps + audit + review → ReportNarrative
+           └── Workflow assembles FinalReport from the computed numbers + narrative
 
 3. CLI post-processing
    ├── If passed: generate_resume → .md + .pdf + .docx output files
@@ -188,8 +202,9 @@ All models are defined in `sira/models/agents/output.py` using Pydantic v2.
 
 ### Key Data Flow Design Decisions
 
-- **CVDiff and GapAnalysis are computed in pure Python** (`cv_diff.py`), not by any LLM agent. This ensures deterministic diff and gap metrics.
-- **The report_agent only produces narrative fields** (recommendation, match_score, suggestions, audit_summary, rationale). The workflow assembles the `FinalReport` by combining the narrative with the pre-computed `CVDiff` and `GapAnalysis`.
+- **Skill coverage uses one judge call, then everything is pure Python.** `skill_matcher_agent` decides which job skills the CV covers (with a CV quote as evidence); `compute_gap_analysis`, `compute_match_score` and `compute_recommendation` in `cv_diff.py` turn those verdicts into deterministic metrics. Given the judge's answer, every number is reproducible. ATS keyword coverage stays a literal substring check on the tailored CV — that is what an applicant tracking system does.
+- **Match score formula** (`compute_match_score`): `score = round(60·hard% + 20·soft% + 20·keyword%) / 100`. A bucket the job lists nothing for is dropped and the remaining weights are rescaled to sum to 100; all buckets empty → 0. `round` is Python's built-in (half to even). **Verdict** (`compute_recommendation`): *Strong Match* when score ≥ 75 and hard-skill coverage ≥ 75 % (or the job lists no hard skills); *Partial Match* when score ≥ 50; otherwise *Weak Match*.
+- **The report_agent only produces narrative fields** (suggestions, audit_summary, rationale). The workflow assembles the `FinalReport` from the computed score, verdict, `CVDiff` and `GapAnalysis` plus that narrative.
 - **The Report phase always runs**, even when audit fails or the writer produces no output. This ensures the user always gets feedback.
 - **Content-hash-based caching** in `ResumeMemoryService`: if the resume file content hash matches a previously parsed version AND the parser version matches, the cached `CV` is reused, skipping AI parsing entirely.
 
@@ -218,7 +233,8 @@ All models are defined in `sira/models/agents/output.py` using Pydantic v2.
 ### Ungated Agents
 
 - `reviewer_agent` — Output drives refinement loop; quality is implicitly validated by the auditor later.
-- `report_agent` — Produces narrative; factual data is computed deterministically.
+- `report_agent` — Produces narrative; score, verdict and gaps are computed in Python.
+- `skill_matcher_agent` — Shape-validated by `_validate_skill_matches`; a wrong answer degrades to literal matching.
 - `job_scraper_agent` — Uses `validate_extraction` tool instead of quality gate.
 
 ### Scoring Criteria by Role
@@ -277,13 +293,16 @@ sira/tools/
 
 ```
 sira/utils/
-├── cv_diff.py              # Pure Python CVDiff + GapAnalysis (no LLM calls)
+├── cv_diff.py              # Pure Python CVDiff + GapAnalysis + match score
+├── skill_matching.py       # render_cv_text, literal pre-pass
 ├── markdown_writer.py      # generate_resume (.md/.pdf/.docx), generate_report_markdown
 ├── resume_converter.py     # InputConverterRegistry: DOCX/PDF → Markdown via markitdown
 ├── resume_output_converter.py  # Output format conversion utilities
 ├── pdf_converter.py        # PDF creation helpers
 └── validate_inputs.py      # Standalone input validation (not used by Typer CLI)
 ```
+
+A same-named but different file, `sira/workflows/skill_matching.py`, holds the one exception to "no model calls in `utils/`": `match_skills` orchestration — literal pre-pass → `skill_matcher_agent` → fallback to literal-only matching on `AgentRunError`. It lives under `workflows/` because it calls a model; `utils/skill_matching.py` above stays model-free.
 
 ---
 
@@ -382,7 +401,7 @@ Both commands are synchronous wrappers (`def`) that call `asyncio.run()` on asyn
 
 1. **Shared Quality Gate**: One `quality_gate_agent` validates all pipeline agents via role-specific scoring criteria, rather than per-agent custom validation code.
 
-2. **Pure Python Diffs**: `CVDiff` and `GapAnalysis` are computed deterministically in `cv_diff.py` — no LLM involved. The report agent only produces narrative.
+2. **Python-Computed Metrics**: `GapAnalysis`, `match_score` and `overall_recommendation` are computed in `cv_diff.py` from per-skill verdicts. The only model involvement is the skill matcher's yes/no-with-evidence per skill; the report agent only writes prose.
 
 3. **Always-Run Report Phase**: The Report phase executes regardless of audit pass/fail, ensuring users always get actionable feedback.
 

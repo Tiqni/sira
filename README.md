@@ -40,7 +40,7 @@ On a cold cache these two stages run **concurrently**.
 | 4. Review | Reviewer  | Scores CV quality and suggests improvements; triggers the refinement loop (`--review-iterations`, default 1, per write attempt)                                |
 | 5. Audit  | Auditor   | Checks for hallucinations and AI clichés → Quality gate validates audit quality. If audit fails, the entire Write → Review → Audit loop retries from stage 3. |
 
-**Stage 6 — Report Generator**: Compiles a self-review report with CVDiff, gap analysis, and recommendations.
+**Stage 6 — Report Generator**: Judges which job skills your CV covers by meaning (one skill-matcher call over the whole CV text), computes the match score and verdict in Python, and compiles the self-review report.
 
 **Quality Gate System**: The CV Writer and the Auditor have validators that score their output 0–10 with a shared quality-gate agent. If the score falls below the gate threshold (`--gate-threshold`, default 6), the agent retries with corrective feedback. On quality gate exhaustion, the system falls back to the last available output (graceful degradation) instead of failing fatally. Disable it entirely with `--no-quality-gate`.
 
@@ -304,8 +304,9 @@ Each workflow run generates a **self-review report** that includes:
 - **Gap Analysis**: Keyword coverage, missing hard/soft skills vs. the job posting
 - **Suggestions to Strengthen**: Recommended improvements to better match the job
 - **Audit Summary**: Feedback from the auditor on tone, authenticity, and compliance
-- **Overall Recommendation**: "Strong Match", "Partial Match", or "Weak Match"
-- **Match Score**: 0–100 score based on keyword coverage and gap severity
+- **Skills Covered**: Hard/soft skills the job asks for that your CV shows — matched by meaning, not only by exact words ("mentor to ~30 engineers" covers "Technical leadership and mentorship"), each with the CV line as evidence
+- **Match Score**: 0–100 = `0.6 × hard-skill coverage + 0.2 × soft-skill coverage + 0.2 × ATS keyword coverage` (buckets the job does not list are rescaled away). Computed in Python, not by the model.
+- **Overall Recommendation**: "Strong Match" (score ≥ 75 and hard coverage ≥ 75 %), "Partial Match" (score ≥ 50), or "Weak Match"
 
 ## ✅ Quality Gate System
 
@@ -355,7 +356,7 @@ sira/
 │   │   ├── playwright.py      # File I/O tool for agents
 │   │   └── job_scraper_helpers.py  # HTML→MD parsers, placeholder detection
 │   └── utils/                 # Markdown writer, resume conversion, CV diff
-│       ├── cv_diff.py         # Pure-Python CV diff and gap analysis
+│       ├── cv_diff.py         # Pure-Python CV diff, gap analysis, match score
 │       ├── markdown_writer.py # Markdown output generation
 │       ├── resume_converter.py  # DOCX/PDF → Markdown conversion
 │       ├── resume_output_converter.py
