@@ -14,7 +14,6 @@ import typer
 from dbos import DBOS, SetWorkflowID
 from pydantic import ValidationError
 from rich.console import Console
-from rich.table import Table
 
 from sira.durability import application_version, durable_runtime
 from sira.memory.parser import PydanticAIResumeParser
@@ -498,6 +497,7 @@ async def _tailor_impl(
     run_id: str | None = None,
 ) -> int:
     """Async implementation of tailor command."""
+    run_id = run_id or str(uuid.uuid4())
     if not job_url.startswith(("http://", "https://")):
         console.print(
             f"[red]❌ Error: Job URL must start with http:// or https://. Got: {job_url}[/red]"
@@ -677,6 +677,9 @@ async def _tailor_impl(
             console.print(f"📄 Tailored CV: {resume_path_out}")
         if report_path_out:
             console.print(f"📊 Report: {report_path_out}")
+        console.print(
+            f"🧾 Run ID: {run_id}  (not the Job ID; use it with `sira resume`)"
+        )
 
     return exit_code
 
@@ -782,6 +785,7 @@ async def _re_tailor_impl(
     run_id: str | None = None,
 ) -> int:
     """Async implementation of re-tailor command."""
+    run_id = run_id or str(uuid.uuid4())
     os.makedirs(output_dir, exist_ok=True)
 
     if fast:
@@ -939,6 +943,9 @@ async def _re_tailor_impl(
                 console.print(f"📄 Updated CV: {resume_path_out}")
             if report_path_out:
                 console.print(f"📊 Updated Report: {report_path_out}")
+            console.print(
+                f"🧾 Run ID: {run_id}  (not the Job ID; use it with `sira resume`)"
+            )
 
     return exit_code
 
@@ -1026,6 +1033,17 @@ def re_tailor(
     raise typer.Exit(code=code)
 
 
+def _is_memory_job_id(candidate: str) -> bool:
+    """True when `candidate` is a tailored-resume record id in the memory database."""
+    try:
+        return (
+            SQLiteResumeMemoryRepository().get_tailored_resume_by_id(candidate)
+            is not None
+        )
+    except Exception:  # noqa: BLE001 — a missing/locked memory DB just means "no"
+        return False
+
+
 async def _resume_impl(run_id: str, *, verbose: bool = False) -> int:
     """Continue a stored run and finish its post-processing (files, memory)."""
     reporter = (
@@ -1036,6 +1054,14 @@ async def _resume_impl(run_id: str, *, verbose: bool = False) -> int:
         status = await handle.get_status()
     except Exception as e:
         console.print(f"[red]❌ Unknown run id: {run_id} ({type(e).__name__})[/red]")
+        if _is_memory_job_id(run_id):
+            console.print(
+                "[yellow]💡 That is a Job ID (the memory record printed at the end of "
+                "a run), not a Run ID. Run IDs are printed at the start and end of "
+                "`sira tailor`; list them with `sira runs`.[/yellow]"
+            )
+        else:
+            console.print("[yellow]💡 List run ids with: sira runs[/yellow]")
         return 1
     if status.name != TAILOR_WORKFLOW_NAME:
         console.print(f"[red]❌ {run_id} is not a tailoring run ({status.name})[/red]")
@@ -1153,14 +1179,9 @@ async def _runs_impl(limit: int) -> None:
     if not statuses:
         console.print("No runs recorded yet.")
         return
-    table = Table(title="Recent runs")
-    # The run id must stay copyable at any terminal width: pin its column
-    # (Rich never shrinks a column below min_width) and let the job fold.
-    table.add_column("Run ID", no_wrap=True, min_width=36)
-    table.add_column("Status")
-    table.add_column("Job", overflow="fold")
-    table.add_column("Started")
-    table.add_column("Duration")
+    # One run per entry, job on its own line: readable and copy-friendly at
+    # any terminal width (a table folds long URLs into a column of fragments).
+    console.print(f"Recent runs (newest first, {len(statuses)} shown):\n")
     for st in statuses:
         try:
             inputs = st.input["args"][0] if st.input else None
@@ -1177,8 +1198,11 @@ async def _runs_impl(limit: int) -> None:
         duration = (
             f"{(end - st.created_at) / 1000:.0f}s" if st.created_at and end else "-"
         )
-        table.add_row(st.workflow_id, st.status, job, started, duration)
-    console.print(table)
+        console.print(
+            f"{st.workflow_id}  {st.status:<8} {started}  {duration}",
+            soft_wrap=True,
+        )
+        console.print(f"    {job}", soft_wrap=True)
 
 
 @app.command()

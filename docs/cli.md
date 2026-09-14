@@ -81,7 +81,7 @@ uv run sira resume <RUN_ID> [-v]
 
 | Argument | Description |
 |---|---|
-| `RUN_ID` | The run id printed by `tailor` / `re-tailor` (also shown by `sira runs`). |
+| `RUN_ID` | The run id printed at the start and end of `tailor` / `re-tailor` (also listed by `sira runs`). Not the Job ID, which names the memory record used by `re-tailor`. |
 
 Behaviour by run state:
 

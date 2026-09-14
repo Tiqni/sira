@@ -56,13 +56,6 @@ def _start_run(tmp_path, sample_cv, monkeypatch, **stub_kwargs):
 def test_runs_lists_recent_runs(tmp_path, sample_cv, monkeypatch):
     run_id, _, exc = _start_run(tmp_path, sample_cv, monkeypatch)
     assert exc is None
-    # Rich falls back to an 80-column width whenever stdout isn't a real tty
-    # (true for CliRunner here, and for CI, which pipes pytest through `tee`);
-    # at that width the unpinned "Job" column folds the URL character-by-
-    # character, breaking the assertion below. Pin a wide terminal so this
-    # test's outcome does not depend on the width of whatever tty (if any)
-    # happens to be attached to the test process.
-    monkeypatch.setenv("COLUMNS", "200")
     result = runner.invoke(app, ["runs", "--limit", "5"])
     assert result.exit_code == 0, result.output
     assert run_id in result.output
@@ -242,3 +235,15 @@ def test_resume_saves_to_memory_from_stored_text_when_the_file_is_gone(
     )
     service.save_tailored_resume.assert_called_once()
     assert "Job ID: job-1" in result.output
+
+
+def test_resume_with_a_job_id_explains_the_difference(monkeypatch):
+    """The memory Job ID printed at the end of a run is not a Run ID."""
+    record = MagicMock()
+    repo = MagicMock(get_tailored_resume_by_id=MagicMock(return_value=record))
+    with patch("sira.main.SQLiteResumeMemoryRepository", MagicMock(return_value=repo)):
+        result = runner.invoke(app, ["resume", "5105aaea-2bb6-4a04-9bd6-890275b53f3e"])
+    assert result.exit_code == 1
+    assert "Unknown run id" in result.output
+    assert "Job ID" in result.output
+    assert "sira runs" in result.output

@@ -214,7 +214,7 @@ uv run sira re-tailor \
 
 ### `resume` / `runs` — Continue an interrupted run
 
-Every run is **durable**: each model request is checkpointed by [DBOS](https://docs.dbos.dev) in a local SQLite file (`memory/dbos.sqlite3`, override with `SIRA_DBOS_DATABASE_URL`). `sira tailor` prints a **Run ID** at start. If the process is killed, crashes, or a stage fails, continue from the last completed model request — earlier agents are replayed from their checkpoints, not called again:
+Every run is **durable**: each model request is checkpointed by [DBOS](https://docs.dbos.dev) in a local SQLite file (`memory/dbos.sqlite3`, override with `SIRA_DBOS_DATABASE_URL`). `sira tailor` prints a **Run ID** at the start and again at the end. It is not the **Job ID** printed with it — the Job ID names the memory record used by `re-tailor`; the Run ID names the durable run used by `resume`. If the process is killed, crashes, or a stage fails, continue from the last completed model request — earlier agents are replayed from their checkpoints, not called again:
 
 > **Privacy:** `memory/dbos.sqlite3` stores each run's inputs and checkpoints — your full resume text, the job posting, every model response (including the tailored CV) and your answers at interactive checkpoints — pickled, with your user's default file permissions. It never leaves your machine. Delete the file to purge it, or point `SIRA_DBOS_DATABASE_URL` at another location. Rows are readable only by the same Sira and `pydantic-ai` versions that wrote them.
 
