@@ -6,13 +6,17 @@ import hashlib
 import logging
 import os
 import re
-from datetime import date
+import uuid
+from datetime import date, datetime
 from pathlib import Path
 
 import typer
+from dbos import DBOS, SetWorkflowID
 from pydantic import ValidationError
 from rich.console import Console
+from rich.table import Table
 
+from sira.durability import application_version, durable_runtime
 from sira.memory.parser import PydanticAIResumeParser
 from sira.memory.service import ResumeMemoryService
 from sira.memory.sqlite_repository import SQLiteResumeMemoryRepository
@@ -22,7 +26,7 @@ from sira.models.agents.output import (
     CV,
     FinalReport,
 )
-from sira.models.workflow import ResumeTailorResult
+from sira.models.workflow import ResumeTailorResult, RunMetadata, TailorInputs
 from sira.utils.markdown_writer import (
     generate_report_markdown,
     generate_resume,
@@ -34,8 +38,13 @@ from sira.utils.resume_converter import (
     UnsupportedFormatError,
 )
 from sira.reporting import LiveDashboard, VerboseReporter
-from sira.reporting.base import use_reporter
-from sira.workflows import ResumeTailorWorkflow, UserAbortedError
+from sira.reporting.base import install_global_reporter, use_reporter
+from sira.workflows import (
+    TAILOR_WORKFLOW_NAME,
+    PipelineError,
+    ResumeTailorWorkflow,
+    UserAbortedError,
+)
 from sira.workflows.agents import (
     apply_model_override,
     job_scraper_agent,
@@ -43,6 +52,7 @@ from sira.workflows.agents import (
     set_agent_models,
     set_quality_gate,
 )
+from sira.workflows.continuation import continue_run
 from sira.tools.job_scraper import fetch_job_markdown
 
 logger = logging.getLogger(__name__)
@@ -196,60 +206,20 @@ def _print_report_to_console(report: FinalReport) -> None:
     console.print("=" * width)
 
 
-async def _run_workflow(
+def _write_outputs(
+    result: ResumeTailorResult,
+    *,
     resume_content: str,
-    job_posting_markdown: str,
     output_dir: str,
-    model: str | None,
-    recommendations: str = "",
-    verbose: bool = False,
-    output_pattern: str = "{company_name}-{job_title}",
-    resume_name_pattern: str = "{company_name}-{full_name}",
-    pre_parsed_cv: CV | None = None,
-    debug: bool = False,
-    write_attempts: int = 2,
-    review_iterations: int = 1,
-    quality_gate: bool = True,
-    gate_threshold: int = 6,
-    reporter=None,
-    interactive: bool = False,
-) -> tuple[int, str | None, str | None, ResumeTailorResult]:
-    set_quality_gate(enabled=quality_gate, threshold=gate_threshold)
-    workflow = ResumeTailorWorkflow(
-        write_attempts=write_attempts,
-        review_iterations=review_iterations,
-        interactive=interactive,
-    )
+    output_pattern: str,
+    resume_name_pattern: str,
+    debug: bool,
+) -> tuple[int, str | None, str | None]:
+    """Write the tailored CV and the report; return (exit_code, resume_path, report_path).
 
-    job_content = job_posting_markdown
-    if recommendations:
-        job_content += f"\n\n---\n**Additional recommendations from prior audit:**\n{recommendations}\n"
-
-    try:
-        result = await workflow.run(
-            resume_content,
-            job_content=job_content,
-            model=model,
-            pre_parsed_cv=pre_parsed_cv,
-            debug=debug,
-            verbose=verbose,
-            reporter=reporter,
-        )
-    except UserAbortedError as e:
-        console.print(f"[yellow]🚫 {e}[/yellow]")
-        return (
-            1,
-            None,
-            None,
-            ResumeTailorResult(
-                company_name="",
-                job_title="",
-                tailored_resume="",
-                audit_report={},
-                passed=False,
-            ),
-        )
-
+    Shared by `tailor`, `re-tailor`, and `resume`, so a continued run produces
+    the same files as an uninterrupted one.
+    """
     resume_path = None
     report_path = None
 
@@ -321,7 +291,161 @@ async def _run_workflow(
     else:
         console.print("\n⚠️ Self-review report could not be generated.")
 
-    return 0, resume_path, report_path, result
+    return 0, resume_path, report_path
+
+
+_EMPTY_RESULT = ResumeTailorResult(
+    company_name="", job_title="", tailored_resume="", audit_report={}, passed=False
+)
+
+
+async def _run_workflow(
+    resume_content: str,
+    job_posting_markdown: str,
+    output_dir: str,
+    model: str | None,
+    recommendations: str = "",
+    verbose: bool = False,
+    output_pattern: str = "{company_name}-{job_title}",
+    resume_name_pattern: str = "{company_name}-{full_name}",
+    pre_parsed_cv: CV | None = None,
+    debug: bool = False,
+    write_attempts: int = 2,
+    review_iterations: int = 1,
+    quality_gate: bool = True,
+    gate_threshold: int = 6,
+    reporter=None,
+    interactive: bool = False,
+    metadata: RunMetadata | None = None,
+    run_id: str | None = None,
+) -> tuple[int, str | None, str | None, ResumeTailorResult]:
+    set_quality_gate(enabled=quality_gate, threshold=gate_threshold)
+    workflow = ResumeTailorWorkflow(
+        write_attempts=write_attempts,
+        review_iterations=review_iterations,
+        interactive=interactive,
+    )
+
+    job_content = job_posting_markdown
+    if recommendations:
+        job_content += f"\n\n---\n**Additional recommendations from prior audit:**\n{recommendations}\n"
+
+    # The run id is the DBOS workflow id: what `sira resume` takes.
+    run_id = run_id or str(uuid.uuid4())
+    console.print(f"🧾 Run ID: {run_id}  (continue later with: sira resume {run_id})")
+
+    try:
+        with SetWorkflowID(run_id):
+            result = await workflow.run(
+                resume_content,
+                job_content=job_content,
+                model=model,
+                pre_parsed_cv=pre_parsed_cv,
+                debug=debug,
+                verbose=verbose,
+                reporter=reporter,
+                metadata=metadata,
+            )
+    except UserAbortedError as e:
+        console.print(f"[yellow]🚫 {e}[/yellow]")
+        return (1, None, None, _EMPTY_RESULT)
+    except PipelineError as e:
+        console.print(f"[red]❌ {e}[/red]")
+        console.print(
+            f"[yellow]💡 Retry from the last checkpoint with: sira resume {run_id}[/yellow]"
+        )
+        return (1, None, None, _EMPTY_RESULT)
+
+    exit_code, resume_path_out, report_path_out = _write_outputs(
+        result,
+        resume_content=resume_content,
+        output_dir=output_dir,
+        output_pattern=output_pattern,
+        resume_name_pattern=resume_name_pattern,
+        debug=debug,
+    )
+    return exit_code, resume_path_out, report_path_out, result
+
+
+async def _save_tailor_to_memory(
+    result: ResumeTailorResult,
+    *,
+    job_url: str,
+    source_path: str,
+    job_posting_markdown: str,
+) -> str | None:
+    """Persist a `tailor` result; return the job id, or None when saving failed."""
+    try:
+        repo = SQLiteResumeMemoryRepository()
+        parser = PydanticAIResumeParser()
+        service = ResumeMemoryService(repository=repo, parser=parser)
+
+        # Use converted markdown path for non-markdown resumes so
+        # resolve_original_resume can read it as text.
+        resolved = await service.aresolve_original_resume(path=source_path)
+        job_fingerprint = _get_job_fingerprint(job_url, result.job_title)
+
+        audit = _audit_result_from_dict(result.audit_report)
+
+        if result.tailored_resume:
+            tailored_cv = CV.model_validate_json(result.tailored_resume)
+        else:
+            tailored_cv = resolved.cv
+
+        record = service.save_tailored_resume(
+            source_id=resolved.source.id,
+            job_fingerprint=job_fingerprint,
+            company_name=result.company_name,
+            job_title=result.job_title,
+            tailored_cv=tailored_cv,
+            audit_result=audit,
+            job_posting_markdown=job_posting_markdown,
+        )
+        console.print(f"\n💾 Job ID: {record.id}")
+        return record.id
+    except Exception as e:
+        logger.warning("Failed to persist tailored resume", exc_info=True)
+        console.print(f"[yellow]⚠️ Failed to save job to memory: {e}[/yellow]")
+        return None
+
+
+def _save_re_tailor_to_memory(
+    result: ResumeTailorResult,
+    *,
+    job_id: str,
+    job_posting_markdown: str,
+    fallback_cv: CV | None = None,
+) -> bool:
+    """Update the prior job record after a `re-tailor`; return True on success."""
+    try:
+        repo = SQLiteResumeMemoryRepository()
+        tailored_record = repo.get_tailored_resume_by_id(job_id)
+        if tailored_record is None:
+            console.print(f"[yellow]⚠️ Prior job not found in memory: {job_id}[/yellow]")
+            return False
+        audit = _audit_result_from_dict(result.audit_report)
+
+        if result.tailored_resume:
+            tailored_cv = CV.model_validate_json(result.tailored_resume)
+        elif fallback_cv is not None:
+            tailored_cv = fallback_cv
+        else:
+            tailored_cv = CV.model_validate_json(tailored_record.tailored_cv_json)
+
+        repo.save_tailored_resume(
+            source_id=tailored_record.source_id,
+            job_fingerprint=tailored_record.job_fingerprint,
+            company_name=result.company_name,
+            job_title=result.job_title,
+            tailored_cv_json=tailored_cv.model_dump_json(),
+            audit_report_json=audit.model_dump_json(),
+            job_posting_markdown=job_posting_markdown,
+        )
+        return True
+    except Exception as e:
+        logger.warning("Failed to update tailored resume record", exc_info=True)
+        console.print(f"[yellow]⚠️ Failed to update job record: {e}[/yellow]")
+        return False
 
 
 async def _tailor_impl(
@@ -339,6 +463,7 @@ async def _tailor_impl(
     gate_threshold: int = 6,
     fast: bool = False,
     interactive: bool = False,
+    run_id: str | None = None,
 ) -> int:
     """Async implementation of tailor command."""
     if not job_url.startswith(("http://", "https://")):
@@ -425,13 +550,25 @@ async def _tailor_impl(
             )
         pre_parsed_cv = None
 
+    source_path = converted_resume_path or resume_path_expanded
+    metadata = RunMetadata(
+        job_url=job_url,
+        resume_source_path=source_path,
+        output_dir=output_dir,
+        output_pattern=output_pattern,
+        resume_name_pattern=resume_name_pattern,
+    )
+
     # LiveDashboard is a context manager (drives a Rich Live panel);
     # VerboseReporter is not, so fall back to a nullcontext for it.
     dashboard_ctx = (
         reporter if hasattr(reporter, "__enter__") else contextlib.nullcontext()
     )
-    with dashboard_ctx:
-        with use_reporter(reporter):
+    # durable_runtime launches DBOS for this process (a no-op when a runtime
+    # is already active, e.g. in the test suite).
+    with durable_runtime(), dashboard_ctx, use_reporter(reporter):
+        install_global_reporter(reporter)
+        try:
             logger.info("scraping_job_posting", extra={"url": job_url})
             try:
                 raw = await fetch_job_markdown(job_url)
@@ -473,6 +610,7 @@ async def _tailor_impl(
                 )
                 raise typer.Exit(code=1)
 
+            metadata.job_posting_markdown = job_posting_markdown
             exit_code, resume_path_out, report_path_out, result = await _run_workflow(
                 resume_content,
                 job_posting_markdown,
@@ -489,47 +627,22 @@ async def _tailor_impl(
                 gate_threshold=gate_threshold,
                 reporter=reporter,
                 interactive=interactive,
+                metadata=metadata,
+                run_id=run_id,
             )
+        finally:
+            install_global_reporter(None)
 
     if exit_code == 0:
-        try:
-            repo = SQLiteResumeMemoryRepository()
-            parser = PydanticAIResumeParser()
-            service = ResumeMemoryService(repository=repo, parser=parser)
-
-            # Use converted markdown path for non-markdown resumes so
-            # resolve_original_resume can read it as text.
-            source_path = converted_resume_path or resume_path_expanded
-            resolved = await service.aresolve_original_resume(path=source_path)
-            job_fingerprint = _get_job_fingerprint(job_url, result.job_title)
-
-            audit = _audit_result_from_dict(result.audit_report)
-
-            if result.tailored_resume:
-                tailored_cv = CV.model_validate_json(result.tailored_resume)
-            else:
-                tailored_cv = resolved.cv
-
-            record = service.save_tailored_resume(
-                source_id=resolved.source.id,
-                job_fingerprint=job_fingerprint,
-                company_name=result.company_name,
-                job_title=result.job_title,
-                tailored_cv=tailored_cv,
-                audit_result=audit,
-                job_posting_markdown=job_posting_markdown,
-            )
-            console.print(f"\n💾 Job ID: {record.id}")
-            console.print("\n✅ Job completed")
-            console.print(f"📄 Tailored CV: {resume_path_out}")
-            console.print(f"📊 Report: {report_path_out}")
-        except Exception as e:
-            logger.warning("Failed to persist tailored resume", exc_info=True)
-            console.print(f"[yellow]⚠️ Failed to save job to memory: {e}[/yellow]")
-            if resume_path_out and report_path_out:
-                console.print("\n✅ Job completed")
-                console.print(f"📄 Tailored CV: {resume_path_out}")
-                console.print(f"📊 Report: {report_path_out}")
+        await _save_tailor_to_memory(
+            result,
+            job_url=job_url,
+            source_path=source_path,
+            job_posting_markdown=job_posting_markdown,
+        )
+        console.print("\n✅ Job completed")
+        console.print(f"📄 Tailored CV: {resume_path_out}")
+        console.print(f"📊 Report: {report_path_out}")
 
     return exit_code
 
@@ -583,24 +696,32 @@ def tailor(
     ),
 ) -> int:
     """Run the full resume tailoring workflow."""
-    return asyncio.run(
-        _tailor_impl(
-            job_url,
-            resume_path,
-            output_dir,
-            model,
-            verbose=verbose,
-            output_pattern=output_pattern,
-            resume_name_pattern=resume_name_pattern,
-            debug=debug,
-            write_attempts=write_attempts,
-            review_iterations=review_iterations,
-            quality_gate=quality_gate,
-            gate_threshold=gate_threshold,
-            fast=fast,
-            interactive=interactive,
+    run_id = str(uuid.uuid4())
+    try:
+        return asyncio.run(
+            _tailor_impl(
+                job_url,
+                resume_path,
+                output_dir,
+                model,
+                verbose=verbose,
+                output_pattern=output_pattern,
+                resume_name_pattern=resume_name_pattern,
+                debug=debug,
+                write_attempts=write_attempts,
+                review_iterations=review_iterations,
+                quality_gate=quality_gate,
+                gate_threshold=gate_threshold,
+                fast=fast,
+                interactive=interactive,
+                run_id=run_id,
+            )
         )
-    )
+    except KeyboardInterrupt:
+        console.print(
+            f"\n⏹  Interrupted. If the pipeline had started, continue it with: sira resume {run_id}"
+        )
+        raise typer.Exit(code=130)
 
 
 async def _re_tailor_impl(
@@ -619,6 +740,7 @@ async def _re_tailor_impl(
     gate_threshold: int = 6,
     fast: bool = False,
     interactive: bool = False,
+    run_id: str | None = None,
 ) -> int:
     """Async implementation of re-tailor command."""
     os.makedirs(output_dir, exist_ok=True)
@@ -720,13 +842,23 @@ async def _re_tailor_impl(
 
     console.print(f"📝 Applying recommendations: {recommendations[:50]}...")
 
+    metadata = RunMetadata(
+        job_id=job_id,
+        resume_source_path=_resume_source_path or "",
+        output_dir=output_dir,
+        output_pattern=output_pattern,
+        resume_name_pattern=resume_name_pattern,
+        job_posting_markdown=job_posting_markdown,
+    )
+
     # LiveDashboard is a context manager (drives a Rich Live panel);
     # VerboseReporter is not, so fall back to a nullcontext for it.
     dashboard_ctx = (
         reporter if hasattr(reporter, "__enter__") else contextlib.nullcontext()
     )
-    with dashboard_ctx:
-        with use_reporter(reporter):
+    with durable_runtime(), dashboard_ctx, use_reporter(reporter):
+        install_global_reporter(reporter)
+        try:
             exit_code, resume_path_out, report_path_out, result = await _run_workflow(
                 resume_content,
                 job_posting_markdown,
@@ -744,36 +876,25 @@ async def _re_tailor_impl(
                 gate_threshold=gate_threshold,
                 reporter=reporter,
                 interactive=interactive,
+                metadata=metadata,
+                run_id=run_id,
             )
+        finally:
+            install_global_reporter(None)
 
     if exit_code == 0:
-        try:
-            audit = _audit_result_from_dict(result.audit_report)
-
-            if result.tailored_resume:
-                tailored_cv = CV.model_validate_json(result.tailored_resume)
-            else:
-                tailored_cv = resolved.cv
-
-            repo.save_tailored_resume(
-                source_id=tailored_record.source_id,
-                job_fingerprint=tailored_record.job_fingerprint,
-                company_name=result.company_name,
-                job_title=result.job_title,
-                tailored_cv_json=tailored_cv.model_dump_json(),
-                audit_report_json=audit.model_dump_json(),
-                job_posting_markdown=job_posting_markdown,
+        saved = _save_re_tailor_to_memory(
+            result,
+            job_id=job_id,
+            job_posting_markdown=job_posting_markdown,
+            fallback_cv=resolved.cv if resolved else None,
+        )
+        if saved and resume_path_out and report_path_out:
+            console.print(
+                f"\n✅ Re-tailoring completed: {result.company_name} / {result.job_title}"
             )
-
-            if resume_path_out and report_path_out:
-                console.print(
-                    f"\n✅ Re-tailoring completed: {result.company_name} / {result.job_title}"
-                )
-                console.print(f"📄 Updated CV: {resume_path_out}")
-                console.print(f"📊 Updated Report: {report_path_out}")
-        except Exception as e:
-            logger.warning("Failed to update tailored resume record", exc_info=True)
-            console.print(f"[yellow]⚠️ Failed to update job record: {e}[/yellow]")
+            console.print(f"📄 Updated CV: {resume_path_out}")
+            console.print(f"📊 Updated Report: {report_path_out}")
 
     return exit_code
 
@@ -830,25 +951,183 @@ def re_tailor(
     ),
 ) -> int:
     """Re-run tailoring with recommendations from a prior audit."""
-    return asyncio.run(
-        _re_tailor_impl(
-            job_id,
-            recommendations,
-            resume_path,
-            output_dir,
-            model,
-            verbose=verbose,
-            output_pattern=output_pattern,
-            resume_name_pattern=resume_name_pattern,
-            debug=debug,
-            write_attempts=write_attempts,
-            review_iterations=review_iterations,
-            quality_gate=quality_gate,
-            gate_threshold=gate_threshold,
-            fast=fast,
-            interactive=interactive,
+    run_id = str(uuid.uuid4())
+    try:
+        return asyncio.run(
+            _re_tailor_impl(
+                job_id,
+                recommendations,
+                resume_path,
+                output_dir,
+                model,
+                verbose=verbose,
+                output_pattern=output_pattern,
+                resume_name_pattern=resume_name_pattern,
+                debug=debug,
+                write_attempts=write_attempts,
+                review_iterations=review_iterations,
+                quality_gate=quality_gate,
+                gate_threshold=gate_threshold,
+                fast=fast,
+                interactive=interactive,
+                run_id=run_id,
+            )
         )
+    except KeyboardInterrupt:
+        console.print(
+            f"\n⏹  Interrupted. If the pipeline had started, continue it with: sira resume {run_id}"
+        )
+        raise typer.Exit(code=130)
+
+
+async def _resume_impl(run_id: str, *, verbose: bool = False) -> int:
+    """Continue a stored run and finish its post-processing (files, memory)."""
+    reporter = (
+        VerboseReporter(console=console) if verbose else LiveDashboard(console=console)
     )
+    with durable_runtime():
+        try:
+            handle = await DBOS.retrieve_workflow_async(run_id)
+            status = await handle.get_status()
+        except Exception:
+            console.print(f"[red]❌ Unknown run id: {run_id}[/red]")
+            return 1
+        if status.name != TAILOR_WORKFLOW_NAME:
+            console.print(
+                f"[red]❌ {run_id} is not a tailoring run ({status.name})[/red]"
+            )
+            return 1
+        if status.app_version != application_version():
+            console.print(
+                f"[red]❌ This run was started with Sira {status.app_version}; "
+                f"installed is {application_version()}. Start a new run.[/red]"
+            )
+            return 1
+        inputs = status.input["args"][0] if status.input else None
+        if not isinstance(inputs, TailorInputs):
+            console.print(f"[red]❌ Stored inputs for {run_id} are unreadable[/red]")
+            return 1
+
+        if status.status == "SUCCESS":
+            console.print("♻️  Run already completed — reusing its result")
+            result = await handle.get_result()  # the stored output, no re-run
+        else:
+            dashboard_ctx = (
+                reporter if hasattr(reporter, "__enter__") else contextlib.nullcontext()
+            )
+            with dashboard_ctx, use_reporter(reporter):
+                # The continued run executes on DBOS's background thread,
+                # where only the process-wide reporter is visible.
+                install_global_reporter(reporter)
+                try:
+                    try:
+                        handle = await continue_run(status)
+                    except ValueError as e:
+                        console.print(f"[red]❌ {e}[/red]")
+                        return 1
+                    if handle.workflow_id != run_id:
+                        console.print(f"🧾 Continued as run: {handle.workflow_id}")
+                    try:
+                        result = await handle.get_result()
+                    except UserAbortedError as e:
+                        console.print(f"[yellow]🚫 {e}[/yellow]")
+                        return 1
+                    except PipelineError as e:
+                        console.print(f"[red]❌ {e}[/red]")
+                        console.print(
+                            f"[yellow]💡 Retry with: sira resume {handle.workflow_id}[/yellow]"
+                        )
+                        return 1
+                finally:
+                    install_global_reporter(None)
+
+    meta = inputs.metadata
+    exit_code, resume_path_out, report_path_out = _write_outputs(
+        result,
+        resume_content=inputs.resume_text,
+        output_dir=meta.output_dir,
+        output_pattern=meta.output_pattern,
+        resume_name_pattern=meta.resume_name_pattern,
+        debug=inputs.debug,
+    )
+    if exit_code == 0:
+        if meta.job_id:
+            _save_re_tailor_to_memory(
+                result,
+                job_id=meta.job_id,
+                job_posting_markdown=meta.job_posting_markdown,
+                fallback_cv=inputs.pre_parsed_cv,
+            )
+        else:
+            await _save_tailor_to_memory(
+                result,
+                job_url=meta.job_url or "",
+                source_path=meta.resume_source_path,
+                job_posting_markdown=meta.job_posting_markdown,
+            )
+        console.print("\n✅ Job completed")
+        console.print(f"📄 Tailored CV: {resume_path_out}")
+        console.print(f"📊 Report: {report_path_out}")
+    return exit_code
+
+
+@app.command()
+def resume(
+    run_id: str = typer.Argument(
+        ..., help="Run ID printed by `sira tailor` / `sira re-tailor`"
+    ),
+    verbose: bool = typer.Option(
+        False, "--verbose", "-v", help="Stream agent thinking and prompts in real-time"
+    ),
+) -> None:
+    """Continue a killed, crashed, or failed run from its last checkpoint."""
+    try:
+        code = asyncio.run(_resume_impl(run_id, verbose=verbose))
+    except KeyboardInterrupt:
+        console.print(f"\n⏹  Interrupted. Continue again with: sira resume {run_id}")
+        raise typer.Exit(code=130)
+    raise typer.Exit(code=code)
+
+
+async def _runs_impl(limit: int) -> None:
+    with durable_runtime():
+        statuses = await DBOS.list_workflows_async(
+            name=TAILOR_WORKFLOW_NAME, sort_desc=True, limit=limit, load_output=False
+        )
+    if not statuses:
+        console.print("No runs recorded yet.")
+        return
+    table = Table(title="Recent runs")
+    for column in ("Run ID", "Status", "Job", "Started", "Duration"):
+        table.add_column(column)
+    for st in statuses:
+        inputs = st.input["args"][0] if st.input else None
+        meta = inputs.metadata if isinstance(inputs, TailorInputs) else RunMetadata()
+        job = meta.job_url or (f"re-tailor of {meta.job_id}" if meta.job_id else "-")
+        started = (
+            datetime.fromtimestamp(st.created_at / 1000).strftime("%Y-%m-%d %H:%M")
+            if st.created_at
+            else "-"
+        )
+        end = st.completed_at or st.updated_at
+        duration = (
+            f"{(end - st.created_at) / 1000:.0f}s" if st.created_at and end else "-"
+        )
+        table.add_row(st.workflow_id, st.status, job, started, duration)
+    # Run IDs (UUIDs) and job URLs are long; a narrow or non-tty console (e.g.
+    # a piped terminal, which rich reports as 80 columns) would otherwise
+    # truncate cells with an ellipsis and hide the very value this table
+    # exists to show. `Console.print(width=...)` only ever *shrinks* to the
+    # detected width, so render on a separate, explicitly wide console instead.
+    Console(width=max(console.size.width, 200)).print(table)
+
+
+@app.command()
+def runs(
+    limit: int = typer.Option(10, help="How many recent runs to show"),
+) -> None:
+    """List recent tailoring runs and their status."""
+    asyncio.run(_runs_impl(limit))
 
 
 def run():
