@@ -306,7 +306,7 @@ Each workflow run generates a **self-review report** that includes:
 - **Audit Summary**: Feedback from the auditor on tone, authenticity, and compliance
 - **Skills Covered**: Hard/soft skills the job asks for that your CV shows — matched by meaning, not only by exact words ("mentor to ~30 engineers" covers "Technical leadership and mentorship"), each with the CV line as evidence
 - **Match Score**: 0–100 = `0.6 × hard-skill coverage + 0.2 × soft-skill coverage + 0.2 × ATS keyword coverage` (buckets the job does not list are rescaled away). Computed in Python, not by the model.
-- **Overall Recommendation**: "Strong Match" (score ≥ 75 and hard coverage ≥ 75 %), "Partial Match" (score ≥ 50), or "Weak Match"
+- **Overall Recommendation**: "Strong Match" (score ≥ 75 and hard-skill coverage ≥ 75 %, or the job lists no hard skills), "Partial Match" (score ≥ 50), or "Weak Match"
 
 ## ✅ Quality Gate System
 

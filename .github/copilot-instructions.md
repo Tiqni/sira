@@ -82,7 +82,7 @@ Avoid these terms in generated content:
 - Workflow result: `models/workflow.py` (`ResumeTailorResult`)
 - Tools: `tools/playwright.py` (file reading), `tools/job_scraper_helpers.py` (HTML parsing, placeholder detection)
 - Memory: `memory/service.py` (`ResumeMemoryService`), `memory/sqlite_repository.py`
-- Utils: `utils/cv_diff.py` (diff/gap/score), `utils/skill_matching.py` (CV text + literal pre-pass)
+- Utils: `utils/cv_diff.py` (diff/gap/score), `utils/skill_matching.py` (CV text + literal pre-pass), `utils/resume_converter.py` (DOCX/PDF→MD)
 - Memory DB: `files/resume_memory.sqlite3`
 - Output: `output/<company>-<job>/`
 
