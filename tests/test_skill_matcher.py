@@ -1,15 +1,45 @@
-"""skill_matcher_agent contract tests with FunctionModel (no real model calls)."""
+"""skill_matcher_agent contract tests with fake models (no real model calls)."""
 
+import json
 import re
 
 import pytest
 from pydantic_ai.exceptions import UnexpectedModelBehavior
+from pydantic_ai.messages import ModelResponse, ToolCallPart
+from pydantic_ai.models.function import AgentInfo, DeltaToolCall, FunctionModel
 from pydantic_ai.models.test import TestModel
 
 from sira.models.agents.output import SkillMatchResult
 
 pytestmark = pytest.mark.anyio
 
+
+def _judge_model(answer):
+    """FunctionModel whose plain and streaming paths share one answer function.
+
+    ``answer(messages) -> dict`` returns the structured-output args. The agent
+    carries DBOSDurability with an event-stream handler, so pydantic-ai always
+    calls the streaming path; a FunctionModel without ``stream_function`` fails.
+    """
+
+    def fn(messages, info: AgentInfo) -> ModelResponse:
+        return ModelResponse(
+            parts=[
+                ToolCallPart(tool_name=info.output_tools[0].name, args=answer(messages))
+            ]
+        )
+
+    async def sfn(messages, info: AgentInfo):
+        yield {
+            0: DeltaToolCall(
+                name=info.output_tools[0].name, json_args=json.dumps(answer(messages))
+            )
+        }
+
+    return FunctionModel(fn, stream_function=sfn)
+
+
+# Used by the match_skills tests appended in the next task.
 _SKILL_LINE = re.compile(r"^\d+\. (.+)$", re.MULTILINE)
 
 
@@ -57,40 +87,25 @@ async def test_validator_accepts_complete_answer_and_canonicalises_names(subtest
 
 async def test_validator_retries_on_missing_skill_then_accepts():
     from sira.workflows.agents import skill_matcher_agent
-    from pydantic_ai.exceptions import UnexpectedModelBehavior
 
-    # Create a model that will fail due to incomplete response
-    model_incomplete = TestModel(
-        custom_output_args={
-            "matches": [{"skill": "Kubernetes", "covered": False, "evidence": ""}]
-        }
-    )
+    calls = {"n": 0}
 
-    # This should fail because Terraform is missing
-    with skill_matcher_agent.override(model=model_incomplete):
-        with pytest.raises(UnexpectedModelBehavior):
-            await skill_matcher_agent.run(
-                "CV:\nx\n\nSkills to judge:\n1. Kubernetes\n2. Terraform",
-                deps=("Kubernetes", "Terraform"),
-            )
-
-    # Now create a model that returns all skills
-    model_complete = TestModel(
-        custom_output_args={
+    def answer(messages) -> dict:
+        calls["n"] += 1
+        skills = ["Kubernetes", "Terraform"]
+        answered = skills[:1] if calls["n"] == 1 else skills  # first answer incomplete
+        return {
             "matches": [
-                {"skill": "Kubernetes", "covered": False, "evidence": ""},
-                {"skill": "Terraform", "covered": False, "evidence": ""},
+                {"skill": s, "covered": False, "evidence": ""} for s in answered
             ]
         }
-    )
 
-    # This should succeed
-    with skill_matcher_agent.override(model=model_complete):
+    with skill_matcher_agent.override(model=_judge_model(answer)):
         result = await skill_matcher_agent.run(
             "CV:\nx\n\nSkills to judge:\n1. Kubernetes\n2. Terraform",
             deps=("Kubernetes", "Terraform"),
         )
-
+    assert calls["n"] == 2
     assert [m.skill for m in result.output.matches] == ["Kubernetes", "Terraform"]
 
 
