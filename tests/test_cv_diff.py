@@ -231,3 +231,95 @@ def test_gap_analysis_new_fields_default_empty(subtests):
     with subtests.test("skill_match_result_roundtrip"):
         result = SkillMatchResult(matches=[SkillMatch(skill="Python", covered=False)])
         assert result.model_dump()["matches"][0]["covered"] is False
+
+
+# ---------------------------------------------------------------------------
+# compute_gap_analysis with semantic skill matches
+# ---------------------------------------------------------------------------
+
+
+def test_gap_analysis_literal_mode_populates_covered_lists_and_percentages(
+    original_cv: CV, tailored_cv: CV, job_analysis: JobAnalysis, subtests
+):
+    gap = compute_gap_analysis(original_cv, tailored_cv, job_analysis)
+    with subtests.test("covered_hard"):
+        assert gap.covered_hard_skills == ["Python", "Docker"]
+    with subtests.test("missing_hard"):
+        assert gap.missing_hard_skills == ["Kubernetes", "Terraform"]
+    with subtests.test("hard_pct"):
+        assert gap.hard_skill_coverage_percent == 50.0
+    with subtests.test("soft_all_missing"):
+        assert gap.covered_soft_skills == []
+        assert gap.soft_skill_coverage_percent == 0.0
+    with subtests.test("evidence_empty_for_literal"):
+        assert gap.skill_evidence == {"Python": "", "Docker": ""}
+
+
+def test_gap_analysis_uses_skill_matches_when_given(
+    original_cv: CV, tailored_cv: CV, job_analysis: JobAnalysis, subtests
+):
+    from sira.models.agents.output import SkillMatch
+
+    matches = {
+        "Python": SkillMatch(skill="Python", covered=True, evidence=""),
+        "Docker": SkillMatch(skill="Docker", covered=True, evidence=""),
+        "Kubernetes": SkillMatch(
+            skill="Kubernetes", covered=True, evidence="ran services on K8s"
+        ),
+        "Terraform": SkillMatch(skill="Terraform", covered=False, evidence=""),
+        "teamwork": SkillMatch(
+            skill="teamwork", covered=True, evidence="pair programming"
+        ),
+        # "communication" deliberately absent from the mapping -> missing
+    }
+    gap = compute_gap_analysis(
+        original_cv, tailored_cv, job_analysis, skill_matches=matches
+    )
+    with subtests.test("covered_hard"):
+        assert gap.covered_hard_skills == ["Python", "Docker", "Kubernetes"]
+    with subtests.test("missing_hard"):
+        assert gap.missing_hard_skills == ["Terraform"]
+    with subtests.test("hard_pct"):
+        assert gap.hard_skill_coverage_percent == 75.0
+    with subtests.test("soft_split"):
+        assert gap.covered_soft_skills == ["teamwork"]
+        assert gap.missing_soft_skills == ["communication"]
+    with subtests.test("soft_pct"):
+        assert gap.soft_skill_coverage_percent == 50.0
+    with subtests.test("evidence"):
+        assert gap.skill_evidence["Kubernetes"] == "ran services on K8s"
+        assert gap.skill_evidence["teamwork"] == "pair programming"
+        assert "Terraform" not in gap.skill_evidence
+    with subtests.test("keywords_still_literal"):
+        assert "Kubernetes" in gap.missing_keywords
+
+
+def test_gap_analysis_skill_matches_do_not_need_tailored_cv(
+    original_cv: CV, job_analysis: JobAnalysis, subtests
+):
+    from sira.models.agents.output import SkillMatch
+
+    matches = {s: SkillMatch(skill=s, covered=True) for s in job_analysis.hard_skills}
+    gap = compute_gap_analysis(original_cv, None, job_analysis, skill_matches=matches)
+    with subtests.test("hard_all_covered"):
+        assert gap.hard_skill_coverage_percent == 100.0
+    with subtests.test("keywords_zero_without_tailored"):
+        assert gap.keyword_coverage_percent == 0.0
+        assert gap.missing_keywords == list(job_analysis.keywords_to_target)
+
+
+def test_gap_analysis_percent_is_zero_when_job_lists_no_skills(
+    original_cv: CV, tailored_cv: CV
+):
+    job = JobAnalysis(
+        job_title="x",
+        company_name="y",
+        summary="z",
+        hard_skills=[],
+        soft_skills=[],
+        key_responsibilities=[],
+        keywords_to_target=["Python"],
+    )
+    gap = compute_gap_analysis(original_cv, tailored_cv, job, skill_matches={})
+    assert gap.hard_skill_coverage_percent == 0.0
+    assert gap.soft_skill_coverage_percent == 0.0
