@@ -55,26 +55,26 @@ async def test_workflow_emits_stage_events(monkeypatch, sample_cv):
             )
         )
 
-    async def run_report(*a, **k):
-        from sira.models.agents.output import (
-            FinalReport,
-            CVDiff,
-            GapAnalysis,
-        )
+    async def run_matcher(*a, **k):
+        from sira.models.agents.output import SkillMatch, SkillMatchResult
 
         return DummyRunResult(
-            FinalReport(
-                job_title="Platform Engineer",
-                company_name="Acme",
-                generated_at="2026-05-30T00:00:00+00:00",
-                overall_recommendation="Strong Match",
-                match_score=90,
-                what_changed=CVDiff(),
-                gaps=GapAnalysis(),
+            SkillMatchResult(
+                matches=[
+                    SkillMatch(skill=s, covered=True, evidence="ok")
+                    for s in (k.get("deps") or ())
+                ]
+            )
+        )
+
+    async def run_report(*a, **k):
+        from sira.models.agents.output import ReportNarrative
+
+        return DummyRunResult(
+            ReportNarrative(
                 suggestions_to_strengthen=[],
                 audit_summary="ok",
                 recommendation_rationale="ok",
-                passed=True,
             )
         )
 
@@ -82,6 +82,7 @@ async def test_workflow_emits_stage_events(monkeypatch, sample_cv):
     monkeypatch.setattr("sira.workflows.agents.writer_agent.run", run_writer)
     monkeypatch.setattr("sira.workflows.agents.reviewer_agent.run", run_reviewer)
     monkeypatch.setattr("sira.workflows.agents.auditor_agent.run", run_auditor)
+    monkeypatch.setattr("sira.workflows.agents.skill_matcher_agent.run", run_matcher)
     monkeypatch.setattr("sira.workflows.agents.report_agent.run", run_report)
 
     rec = RecordingReporter()

@@ -4,11 +4,11 @@ import pytest
 
 from sira.models.agents.output import (
     AuditResult,
-    CVDiff,
-    FinalReport,
-    GapAnalysis,
     JobAnalysis,
+    ReportNarrative,
     ReviewResult,
+    SkillMatch,
+    SkillMatchResult,
 )
 from sira.workflows import PipelineError, ResumeTailorWorkflow
 
@@ -279,48 +279,52 @@ def _make_passing_audit():
     )
 
 
-def _make_weak_report_narrative():
-    return FinalReport(
-        job_title="Engineer",
-        company_name="Acme",
-        generated_at="2026-01-01T00:00:00Z",
-        overall_recommendation="Weak Match",
-        match_score=35,
-        what_changed=CVDiff(),
-        gaps=GapAnalysis(
-            covered_keywords=["Python"],
-            missing_keywords=["Kubernetes"],
-            missing_hard_skills=["Kubernetes"],
-            missing_soft_skills=[],
-            keyword_coverage_percent=50.0,
-        ),
+def _make_report_narrative():
+    return ReportNarrative(
         suggestions_to_strengthen=["Add Kubernetes"],
         audit_summary="Passed",
-        recommendation_rationale="Low coverage",
-        passed=True,
+        recommendation_rationale="See coverage.",
     )
 
 
-def _make_strong_report_narrative():
-    return FinalReport(
-        job_title="Engineer",
-        company_name="Acme",
-        generated_at="2026-01-01T00:00:00Z",
-        overall_recommendation="Strong Match",
-        match_score=90,
-        what_changed=CVDiff(),
-        gaps=GapAnalysis(
-            covered_keywords=["Python", "SQL"], keyword_coverage_percent=100.0
-        ),
-        suggestions_to_strengthen=[],
-        audit_summary="Passed",
-        recommendation_rationale="Excellent coverage",
-        passed=True,
-    )
+def _matcher_stub(covered_sequence: list[bool]):
+    """agent.run stand-in for skill_matcher_agent.
+
+    Call N answers ``covered_sequence[min(N, len-1)]`` for every requested
+    skill. With the job used by ``_base_agent_mocks`` (hard: Python,
+    Kubernetes; soft: Communication; keywords: Python, Kubernetes) and
+    ``sample_cv`` (has Python), all-False gives score 40 → "Weak Match" and
+    all-True gives 90 → "Strong Match".
+    """
+    calls = {"n": 0}
+
+    async def run_matcher(*args, **kwargs):
+        idx = min(calls["n"], len(covered_sequence) - 1)
+        calls["n"] += 1
+        covered = covered_sequence[idx]
+        skills = kwargs.get("deps") or ()
+        return DummyRunResult(
+            SkillMatchResult(
+                matches=[
+                    SkillMatch(
+                        skill=s, covered=covered, evidence="stub" if covered else ""
+                    )
+                    for s in skills
+                ]
+            )
+        )
+
+    return run_matcher
 
 
-def _base_agent_mocks(monkeypatch, sample_cv, *, auditor_result, report_narrative=None):
-    """Patch all agents. auditor_result can be a single AuditResult or a list for sequential calls."""
+def _base_agent_mocks(
+    monkeypatch, sample_cv, *, auditor_result, matcher_covered: list[bool] | None = None
+):
+    """Patch all agents. auditor_result can be a single AuditResult or a list for sequential calls.
+
+    ``matcher_covered`` drives the verdict (see ``_matcher_stub``); default
+    ``[True]`` → "Strong Match".
+    """
 
     async def run_analyst(*args, **kwargs):
         return DummyRunResult(
@@ -360,12 +364,14 @@ def _base_agent_mocks(monkeypatch, sample_cv, *, auditor_result, report_narrativ
         async def run_auditor(*args, **kwargs):
             return DummyRunResult(auditor_result)
 
-    if report_narrative is not None:
+    async def run_report(*args, **kwargs):
+        return DummyRunResult(_make_report_narrative())
 
-        async def run_report(*args, **kwargs):
-            return DummyRunResult(report_narrative)
-
-        monkeypatch.setattr("sira.workflows.agents.report_agent.run", run_report)
+    monkeypatch.setattr("sira.workflows.agents.report_agent.run", run_report)
+    monkeypatch.setattr(
+        "sira.workflows.agents.skill_matcher_agent.run",
+        _matcher_stub(matcher_covered or [True]),
+    )
 
     async def run_parser(*args, **kwargs):
         return DummyRunResult(sample_cv)
@@ -516,7 +522,7 @@ async def test_interactive_weak_match_quit(monkeypatch, sample_cv):
         monkeypatch,
         sample_cv,
         auditor_result=_make_passing_audit(),
-        report_narrative=_make_weak_report_narrative(),
+        matcher_covered=[False],
     )
 
     with pytest.raises(UserAbortedError):
@@ -534,13 +540,40 @@ async def test_interactive_weak_match_continue(monkeypatch, sample_cv):
         monkeypatch,
         sample_cv,
         auditor_result=_make_passing_audit(),
-        report_narrative=_make_weak_report_narrative(),
+        matcher_covered=[False],
     )
 
     result = await ResumeTailorWorkflow(interactive=True, write_attempts=1).run(
         "# resume", job_content="job description"
     )
     assert result.passed is True  # audit passed; only report is weak
+
+
+@pytest.mark.anyio
+async def test_final_report_score_and_verdict_are_computed_in_python(
+    monkeypatch, sample_cv, subtests
+):
+    """The report agent no longer decides the score; the workflow does."""
+    _patch_stdin(monkeypatch, is_tty=False)
+    _base_agent_mocks(
+        monkeypatch,
+        sample_cv,
+        auditor_result=_make_passing_audit(),
+        matcher_covered=[True],
+    )
+
+    result = await ResumeTailorWorkflow(write_attempts=1).run(
+        "# resume", job_content="job"
+    )
+    report = result.final_report
+    assert report is not None
+    with subtests.test("score"):
+        assert report.match_score == 90  # hard 100, soft 100, keywords 50
+    with subtests.test("verdict"):
+        assert report.overall_recommendation == "Strong Match"
+    with subtests.test("evidence_in_gaps"):
+        assert report.gaps.skill_evidence["Kubernetes"] == "stub"
+        assert report.gaps.skill_evidence["Python"] == ""  # literal hit
 
 
 @pytest.mark.anyio
@@ -552,23 +585,13 @@ async def test_interactive_weak_match_feedback_then_strong(monkeypatch, sample_c
         writer_prompts.append(args[0] if args else "")
         return DummyRunResult(sample_cv)
 
-    report_call = {"n": 0}
-
-    async def run_report_alternating(*args, **kwargs):
-        report_call["n"] += 1
-        if report_call["n"] == 1:
-            return DummyRunResult(_make_weak_report_narrative())
-        return DummyRunResult(_make_strong_report_narrative())
-
     _base_agent_mocks(
         monkeypatch,
         sample_cv,
         auditor_result=_make_passing_audit(),
+        matcher_covered=[False, True],
     )
     monkeypatch.setattr("sira.workflows.agents.writer_agent.run", run_writer_capture)
-    monkeypatch.setattr(
-        "sira.workflows.agents.report_agent.run", run_report_alternating
-    )
 
     responses = iter(["f", "emphasize Python"])
     _patch_stdin(monkeypatch, is_tty=True)
@@ -592,7 +615,7 @@ async def test_interactive_weak_match_feedback_still_weak_then_continue(
         monkeypatch,
         sample_cv,
         auditor_result=_make_passing_audit(),
-        report_narrative=_make_weak_report_narrative(),
+        matcher_covered=[False],
     )
 
     responses = iter(["f", "my instructions", "c"])
