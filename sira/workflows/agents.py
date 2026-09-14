@@ -1,18 +1,21 @@
 import asyncio
+import contextvars
 import logging
 import os
 import time
+from collections.abc import AsyncIterable
 from typing import Any
 
+import pydantic_ai
 from pydantic import BaseModel, ConfigDict
 from pydantic_ai import (
     Agent,
-    AgentRunResultEvent,
+    AgentStreamEvent,
     ModelRetry,
     PartDeltaEvent,
     RunContext,
 )
-from pydantic_ai.exceptions import UnexpectedModelBehavior
+from pydantic_ai.durable_exec.dbos import DBOSDurability
 from pydantic_ai.agent import AgentRunResult
 from pydantic_ai.messages import TextPartDelta, ThinkingPartDelta
 from pydantic_ai.models import infer_model
@@ -30,8 +33,6 @@ from sira.models.agents.output import (
     FinalReport,
 )
 from sira.reporting.base import get_active_reporter
-
-import pydantic_ai
 
 # pydantic-ai 2.x prints a first-run banner to stderr; it would land inside the
 # Rich live dashboard. Sira owns its own output, so turn it off at import.
@@ -56,6 +57,60 @@ def _safe_report(fn: Any, *args: Any, **kwargs: Any) -> None:
         logger.debug("reporter_call_failed", exc_info=True)
 
 
+# Label of the agent currently running through run_agent, read by the
+# streaming handler below. A contextvar: set per task, visible inside the
+# DBOS model-request step that runs in the same task.
+_current_agent_label: contextvars.ContextVar[str] = contextvars.ContextVar(
+    "current_agent_label", default=""
+)
+
+
+async def _stream_to_reporter(
+    ctx: RunContext[Any], events: AsyncIterable[AgentStreamEvent]
+) -> None:
+    """Forward text/thinking deltas to the active reporter as they arrive.
+
+    Installed on every agent through DBOSDurability so tokens stream live even
+    when the model request runs inside a checkpointed DBOS step.
+    """
+    reporter = get_active_reporter()
+    try:
+        wants_tokens = reporter.wants_tokens
+    except Exception:
+        logger.debug("reporter_call_failed", exc_info=True)
+        wants_tokens = False
+    label = _current_agent_label.get()
+    async for event in events:
+        if not wants_tokens or not isinstance(event, PartDeltaEvent):
+            continue
+        if isinstance(event.delta, TextPartDelta):
+            _safe_report(reporter.token, label, event.delta.content_delta, "output")
+        elif isinstance(event.delta, ThinkingPartDelta):
+            _safe_report(reporter.token, label, event.delta.content_delta, "thinking")
+
+
+# DBOS retries a model request that raised (network or HTTP errors) before
+# pydantic-ai's own agent-level retries ever see the failure.
+_MODEL_STEP_CONFIG = {
+    "retries_allowed": True,
+    "max_attempts": 3,
+    "interval_seconds": 2,
+    "backoff_rate": 2,
+}
+
+
+def _durability() -> DBOSDurability:
+    """One DBOSDurability per agent (DBOS binds step names to the agent name).
+
+    Inside a DBOS workflow each model request becomes a checkpointed step;
+    outside a workflow the capability is transparent.
+    """
+    return DBOSDurability(
+        event_stream_handler=_stream_to_reporter,
+        model_step_config=_MODEL_STEP_CONFIG,
+    )
+
+
 async def run_agent(
     agent: Agent,
     prompt: str,
@@ -66,7 +121,12 @@ async def run_agent(
     usage_limits: UsageLimits | None = None,
     model: str | None = None,
 ) -> AgentRunResult:
-    """Run an agent, emitting lifecycle/token events to the active reporter."""
+    """Run an agent, emitting lifecycle events to the active reporter.
+
+    Token streaming is done by the DBOSDurability event-stream handler on the
+    agent (see _stream_to_reporter), so this always uses ``agent.run``: one
+    code path inside and outside a DBOS workflow.
+    """
     reporter = get_active_reporter()
 
     run_kwargs: dict[str, Any] = {"usage": usage, "usage_limits": usage_limits}
@@ -76,64 +136,13 @@ async def run_agent(
 
     _safe_report(reporter.agent_start, agent_label, prompt)
     start = time.monotonic()
-
+    label_token = _current_agent_label.set(agent_label)
     try:
-        wants_tokens = reporter.wants_tokens
-    except Exception:
-        logger.debug("reporter_call_failed", exc_info=True)
-        wants_tokens = False
-
-    if not wants_tokens:
         result = await agent.run(prompt, **run_kwargs)
-        _safe_report(reporter.agent_done, agent_label, time.monotonic() - start)
-        return result
-
-    try:
-        result = None
-        # pydantic-ai v2: run_stream_events() must be used as an async context
-        # manager so the background run task is cleaned up if we stop early.
-        async with agent.run_stream_events(prompt, **run_kwargs) as events:
-            async for event in events:
-                if isinstance(event, AgentRunResultEvent):
-                    result = event.result
-                elif isinstance(event, PartDeltaEvent):
-                    if isinstance(event.delta, TextPartDelta):
-                        _safe_report(
-                            reporter.token,
-                            agent_label,
-                            event.delta.content_delta,
-                            "output",
-                        )
-                    elif isinstance(event.delta, ThinkingPartDelta):
-                        _safe_report(
-                            reporter.token,
-                            agent_label,
-                            event.delta.content_delta,
-                            "thinking",
-                        )
-
-        if result is None:
-            result = await agent.run(prompt, **run_kwargs)
-
-        _safe_report(reporter.agent_done, agent_label, time.monotonic() - start)
-        return result
-
-    except (KeyboardInterrupt, asyncio.CancelledError):
-        raise
-    except (ModelRetry, UnexpectedModelBehavior):
-        raise
-    except Exception:
-        logger.warning(
-            "verbose_stream_failed_falling_back",
-            extra={"agent_label": agent_label},
-            exc_info=True,
-        )
-        _safe_report(
-            reporter.note, f"Stream interrupted for [{agent_label}], falling back..."
-        )
-        result = await agent.run(prompt, **run_kwargs)
-        _safe_report(reporter.agent_done, agent_label, time.monotonic() - start)
-        return result
+    finally:
+        _current_agent_label.reset(label_token)
+    _safe_report(reporter.agent_done, agent_label, time.monotonic() - start)
+    return result
 
 
 class _QualityState(BaseModel):
@@ -323,6 +332,7 @@ async def _score_output(role: str, label: str, payload: str, ctx) -> int | None:
 # Universal reviewer: scores any pipeline agent's output 0-10 and requests improvements.
 quality_gate_agent = Agent(
     _DEFAULT_MODEL,
+    name="sira.quality_gate",
     model_settings=MODEL_SETTINGS,
     system_prompt="""You are a strict Quality Gate Reviewer for a resume tailoring pipeline.
 Score the output of the agent whose role is specified in the prompt, on a scale of 0 to 10.
@@ -338,12 +348,14 @@ output is broken and must be regenerated.
 Always provide reasoning, and list specific improvements whenever the score is below 9.""",
     output_type=QualityCheckResult,
     retries=2,
+    capabilities=[_durability()],
 )
 
 # --- Agent 1: The Job Analyst ---
 # Responsibility: Turn Markdown or raw text into a structured JobAnalysis object.
 analyst_agent = Agent(
     _DEFAULT_MODEL,
+    name="sira.analyst",
     model_settings=MODEL_SETTINGS,
     system_prompt="""
     You are an expert Technical Recruiter.
@@ -353,12 +365,14 @@ analyst_agent = Agent(
     """,
     output_type=JobAnalysis,
     retries=2,
+    capabilities=[_durability()],
 )
 
 # --- Agent 1.5: The Resume Parser ---
 # Responsibility: Parse markdown resume into structured CV object
 resume_parser_agent = Agent(
     _DEFAULT_MODEL,
+    name="sira.resume_parser",
     model_settings=MODEL_SETTINGS,
     system_prompt="""
     You are an expert Resume Parser.
@@ -381,12 +395,14 @@ resume_parser_agent = Agent(
     """,
     output_type=CV,
     retries=2,
+    capabilities=[_durability()],
 )
 
 # --- Agent 2: The Writer ---
 # Responsibility: Rewrite the CV based on the Analysis.
 writer_agent = Agent(
     _DEFAULT_MODEL,
+    name="sira.writer",
     model_settings=MODEL_SETTINGS,
     system_prompt="""
     You are a Senior Resume Writer.
@@ -410,12 +426,14 @@ writer_agent = Agent(
     """,
     output_type=CV,
     retries=2,
+    capabilities=[_durability()],
 )
 
 # --- Agent 3: The Auditor ---
 # Responsibility: Compare Original vs New to catch lies and AI-speak.
 auditor_agent = Agent(
     _DEFAULT_MODEL,
+    name="sira.auditor",
     model_settings=MODEL_SETTINGS,
     system_prompt="""
     You are a strict Compliance Auditor and Resume Quality Checker.
@@ -464,12 +482,14 @@ auditor_agent = Agent(
     """,
     output_type=AuditResult,
     retries=2,
+    capabilities=[_durability()],
 )
 
 # --- Agent 4: The Cover Letter Writer ---
 # Responsibility: Write a personalized, human-sounding cover letter.
 cover_letter_writer_agent = Agent(
     _DEFAULT_MODEL,
+    name="sira.cover_letter_writer",
     model_settings=MODEL_SETTINGS,
     system_prompt="""
     You are an experienced Career Coach specializing in authentic, human cover letters.
@@ -497,6 +517,7 @@ cover_letter_writer_agent = Agent(
     """,
     output_type=str,  # or create a CoverLetter pydantic model if you want structured output
     retries=2,
+    capabilities=[_durability()],
 )
 
 
@@ -504,6 +525,7 @@ cover_letter_writer_agent = Agent(
 # Responsibility: Review quality and suggest specific improvements
 reviewer_agent = Agent(
     _DEFAULT_MODEL,
+    name="sira.reviewer",
     model_settings=MODEL_SETTINGS,
     system_prompt="""
     You are a Senior Resume Quality Reviewer.
@@ -539,6 +561,7 @@ reviewer_agent = Agent(
     """,
     output_type=ReviewResult,  # You'll need to create this model
     retries=5,
+    capabilities=[_durability()],
 )
 
 
@@ -549,6 +572,7 @@ reviewer_agent = Agent(
 # and gap data are injected by the workflow, not generated by the LLM).
 report_agent = Agent(
     _DEFAULT_MODEL,
+    name="sira.report",
     model_settings=MODEL_SETTINGS,
     system_prompt="""
     You are a Career Advisor writing a clear, honest self-review report.
@@ -595,6 +619,7 @@ report_agent = Agent(
     """,
     output_type=FinalReport,
     retries=5,
+    capabilities=[_durability()],
 )
 
 
@@ -612,9 +637,11 @@ async def _validate_auditor(ctx: RunContext[None], output: AuditResult) -> Audit
 
 job_scraper_agent = Agent(
     _DEFAULT_MODEL,
+    name="sira.job_scraper",
     model_settings=MODEL_SETTINGS,
     output_type=str,
     retries=3,
+    capabilities=[_durability()],
 )
 
 

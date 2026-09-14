@@ -1,60 +1,31 @@
-"""Tests for run_agent(): emits reporter events and streams when wants_tokens."""
+"""Tests for run_agent(): lifecycle events and the model kwarg."""
 
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-from pydantic_ai import Agent, AgentRunResultEvent, PartDeltaEvent
-from pydantic_ai.messages import TextPartDelta
+from pydantic_ai import Agent
 
 from sira.reporting.base import use_reporter
-from sira.workflows.agents import run_agent
+from sira.workflows import agents as agents_mod
+from sira.workflows.agents import _current_agent_label, run_agent
 from tests.reporting.test_base import RecordingReporter
 
 
-class _AsyncIter:
-    def __init__(self, items):
-        self._items = iter(items)
-
-    def __aiter__(self):
-        return self
-
-    async def __anext__(self):
-        try:
-            return next(self._items)
-        except StopIteration:
-            raise StopAsyncIteration
-
-
-class _AsyncCM:
-    """Stand-in for the async context manager returned by run_stream_events()
-    in pydantic-ai v2: entering it yields the event iterator."""
-
-    def __init__(self, events):
-        self._events = events
-
-    async def __aenter__(self):
-        return _AsyncIter(self._events)
-
-    async def __aexit__(self, *exc):
-        return False
-
-
-class TestRunAgentNonStreaming:
+class TestRunAgentLifecycle:
     @pytest.mark.anyio
-    async def test_delegates_to_agent_run_when_reporter_wants_no_tokens(self):
+    async def test_delegates_to_agent_run(self):
         agent = MagicMock(spec=Agent)
         expected = MagicMock()
         agent.run = AsyncMock(return_value=expected)
 
-        rec = RecordingReporter()  # wants_tokens = False
+        rec = RecordingReporter()
         with use_reporter(rec):
             result = await run_agent(agent, "prompt", agent_label="A")
 
         agent.run.assert_awaited_once()
         assert result is expected
         kinds = [e[0] for e in rec.events]
-        assert kinds[0] == "agent_start"
-        assert "agent_done" in kinds
+        assert kinds == ["agent_start", "agent_done"]
 
     @pytest.mark.anyio
     async def test_passes_usage_params(self):
@@ -66,67 +37,49 @@ class TestRunAgentNonStreaming:
             )
         agent.run.assert_awaited_once_with("test", usage="u", usage_limits="ul")
 
-
-class TestRunAgentStreaming:
     @pytest.mark.anyio
-    async def test_streams_tokens_and_returns_final_result_without_fallback(self):
+    async def test_label_contextvar_is_set_during_run_and_reset_after(self):
         agent = MagicMock(spec=Agent)
-        expected = MagicMock()
-        final = MagicMock(spec=AgentRunResultEvent)
-        final.result = expected
-        delta = PartDeltaEvent(index=0, delta=TextPartDelta(content_delta="hi"))
-        agent.run_stream_events = MagicMock(return_value=_AsyncCM([delta, final]))
-        agent.run = AsyncMock()
+        seen: list[str] = []
 
-        rec = RecordingReporter()
-        rec.wants_tokens = True
-        with use_reporter(rec):
-            result = await run_agent(agent, "prompt", agent_label="Writer")
+        async def fake_run(*args, **kwargs):
+            seen.append(_current_agent_label.get())
+            return MagicMock()
 
-        agent.run_stream_events.assert_called_once_with(
-            "prompt", usage=None, usage_limits=None
-        )
-        assert result is expected
-        agent.run.assert_not_awaited()  # the stream delivered the result
-        assert ("token", "Writer", "hi", "output") in rec.events
-        kinds = [e[0] for e in rec.events]
-        assert kinds[0] == "agent_start"
-        assert kinds[-1] == "agent_done"
-        assert "note" not in kinds  # note() is only emitted on stream failure
+        agent.run = fake_run
+        with use_reporter(RecordingReporter()):
+            await run_agent(agent, "p", agent_label="Writer (refine)")
+        assert seen == ["Writer (refine)"]
+        assert _current_agent_label.get() == ""
 
     @pytest.mark.anyio
-    async def test_runs_agent_when_stream_ends_without_result(self):
+    async def test_label_is_reset_even_when_the_run_raises(self):
         agent = MagicMock(spec=Agent)
-        expected = MagicMock()
-        agent.run_stream_events = MagicMock(return_value=_AsyncCM([]))
-        agent.run = AsyncMock(return_value=expected)
-
-        rec = RecordingReporter()
-        rec.wants_tokens = True
-        with use_reporter(rec):
-            result = await run_agent(agent, "prompt", agent_label="Writer")
-
-        assert result is expected
-        agent.run.assert_awaited_once()
+        agent.run = AsyncMock(side_effect=RuntimeError("boom"))
+        with use_reporter(RecordingReporter()):
+            with pytest.raises(RuntimeError):
+                await run_agent(agent, "p", agent_label="Auditor")
+        assert _current_agent_label.get() == ""
 
 
-class TestRunAgentFallback:
-    @pytest.mark.anyio
-    async def test_falls_back_on_stream_error(self):
-        agent = MagicMock(spec=Agent)
-        fallback = MagicMock()
-        agent.run = AsyncMock(return_value=fallback)
-        bad = MagicMock()
-        bad.__aenter__ = AsyncMock(side_effect=RuntimeError("boom"))
-        agent.run_stream_events = MagicMock(return_value=bad)
+def test_every_production_agent_is_named_and_durable():
+    from pydantic_ai.durable_exec.dbos import DBOSDurability
 
-        rec = RecordingReporter()
-        rec.wants_tokens = True
-        with use_reporter(rec):
-            result = await run_agent(agent, "p", agent_label="Writer")
-
-        assert result is fallback
-        agent.run.assert_awaited_once()
-        assert ("note", "Stream interrupted for [Writer], falling back...") in (
-            rec.events
-        )
+    expected = {
+        "quality_gate_agent": "sira.quality_gate",
+        "analyst_agent": "sira.analyst",
+        "resume_parser_agent": "sira.resume_parser",
+        "writer_agent": "sira.writer",
+        "auditor_agent": "sira.auditor",
+        "cover_letter_writer_agent": "sira.cover_letter_writer",
+        "reviewer_agent": "sira.reviewer",
+        "report_agent": "sira.report",
+        "job_scraper_agent": "sira.job_scraper",
+    }
+    for attr, name in expected.items():
+        agent = getattr(agents_mod, attr)
+        assert agent.name == name, attr
+        # pydantic-ai 2.x exposes the bound capabilities on root_capability.
+        assert any(
+            isinstance(c, DBOSDurability) for c in agent.root_capability.capabilities
+        ), f"{attr} is not durable"
