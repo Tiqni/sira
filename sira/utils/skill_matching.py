@@ -19,6 +19,17 @@ def normalise_text(text: str) -> str:
     return " ".join(text.split()).casefold()
 
 
+def skill_key(text: str) -> str:
+    """Canonical key for a skill string: whitespace-collapsed, case-folded.
+
+    Used to treat "Leadership" and "leadership" (or "Team  Leadership" and
+    "team leadership") as the same skill when deduplicating and when fanning
+    a judge's or the literal pre-pass's answer back out to every spelling a
+    job posting used.
+    """
+    return normalise_text(text)
+
+
 def _contains_term(haystack: str, needle: str) -> bool:
     """True when ``needle`` occurs in ``haystack`` as a whole term.
 

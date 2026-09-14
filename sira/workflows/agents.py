@@ -35,6 +35,7 @@ from sira.models.agents.output import (
     SkillMatchResult,
 )
 from sira.reporting.base import get_active_reporter
+from sira.utils.skill_matching import skill_key
 
 # pydantic-ai 2.x prints a first-run banner to stderr; it would land inside the
 # Rich live dashboard. Sira owns its own output, so turn it off at import.
@@ -656,8 +657,7 @@ skill_matcher_agent = Agent(
 )
 
 
-def _skill_key(text: str) -> str:
-    return " ".join(text.split()).casefold()
+_skill_key = skill_key
 
 
 @skill_matcher_agent.output_validator

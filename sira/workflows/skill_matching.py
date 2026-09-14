@@ -15,21 +15,47 @@ from pydantic_ai.usage import RunUsage, UsageLimits
 
 from sira.models.agents.output import CV, JobAnalysis, SkillMatch
 from sira.reporting.base import get_active_reporter
-from sira.utils.skill_matching import literal_matches, render_cv_text
+from sira.utils.skill_matching import literal_matches, render_cv_text, skill_key
 from sira.workflows.agents import _safe_report, run_agent, skill_matcher_agent
 
 SKILL_MATCHER_LABEL = "Skill Matcher"
 
 
 def unique_job_skills(job: JobAnalysis) -> list[str]:
-    """Hard then soft skills, exact-string de-duplicated, first occurrence kept."""
+    """Hard then soft skills, de-duplicated by normalised key, first spelling kept.
+
+    "Leadership" and "leadership" (or "Team  Leadership" and "team leadership")
+    share one key, so they are judged once under whichever spelling appeared
+    first.
+    """
     seen: set[str] = set()
     unique: list[str] = []
     for skill in (*job.hard_skills, *job.soft_skills):
-        if skill not in seen:
-            seen.add(skill)
+        key = skill_key(skill)
+        if key not in seen:
+            seen.add(key)
             unique.append(skill)
     return unique
+
+
+def _fan_out_to_original_spellings(
+    matches: dict[str, SkillMatch], job: JobAnalysis
+) -> None:
+    """Copy each match onto every original job-skill spelling sharing its key.
+
+    ``matches`` is keyed by whichever spelling ``unique_job_skills`` judged.
+    ``compute_gap_analysis`` looks each job skill up by its ORIGINAL string
+    (``job.hard_skills`` / ``job.soft_skills`` are not de-duplicated), so every
+    spelling that normalises to an already-decided key must resolve to the
+    same verdict.
+    """
+    by_key = {skill_key(match.skill): match for match in matches.values()}
+    for original in (*job.hard_skills, *job.soft_skills):
+        match = by_key.get(skill_key(original))
+        if match is not None and original not in matches:
+            matches[original] = SkillMatch(
+                skill=original, covered=match.covered, evidence=match.evidence
+            )
 
 
 def build_matcher_prompt(cv_text: str, skills: Sequence[str]) -> str:
@@ -57,6 +83,7 @@ async def match_skills(
     skills = unique_job_skills(job)
     cv_text = render_cv_text(original)
     matches = literal_matches(skills, cv_text)
+    _fan_out_to_original_spellings(matches, job)
     pending = [skill for skill in skills if skill not in matches]
     if not pending:
         return matches
@@ -85,4 +112,5 @@ async def match_skills(
 
     for match in result.output.matches:
         matches[match.skill] = match
+    _fan_out_to_original_spellings(matches, job)
     return matches

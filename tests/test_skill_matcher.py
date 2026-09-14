@@ -294,6 +294,24 @@ async def test_match_skills_dedupes_skills_listed_as_hard_and_soft():
     assert calls == [["Rust"]]
 
 
+async def test_match_skills_treats_case_and_whitespace_variants_as_one_skill(subtests):
+    from sira.workflows.agents import skill_matcher_agent
+    from sira.workflows.skill_matching import match_skills
+
+    calls: list[list[str]] = []
+    table = {"Team  Leadership": (True, "Mentor to 5 people")}
+    with skill_matcher_agent.override(model=_table_judge(table, calls)):
+        matches = await match_skills(
+            _cv(), _job(["Team  Leadership"], ["team leadership"])
+        )
+    with subtests.test("judged_once"):
+        assert calls == [["Team  Leadership"]]
+    with subtests.test("both_spellings_covered"):
+        assert matches["Team  Leadership"].covered is True
+        assert matches["team leadership"].covered is True
+        assert matches["team leadership"].evidence == "Mentor to 5 people"
+
+
 async def test_match_skills_falls_back_to_literal_when_judge_fails():
     from sira.workflows.agents import skill_matcher_agent
     from sira.workflows.skill_matching import match_skills
