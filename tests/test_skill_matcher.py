@@ -9,7 +9,8 @@ from pydantic_ai.messages import ModelResponse, ToolCallPart
 from pydantic_ai.models.function import AgentInfo, DeltaToolCall, FunctionModel
 from pydantic_ai.models.test import TestModel
 
-from sira.models.agents.output import SkillMatchResult
+from sira.models.agents.output import CV, JobAnalysis, SkillMatchResult, WorkExperience
+from sira.reporting.base import NullReporter, use_reporter
 
 pytestmark = pytest.mark.anyio
 
@@ -39,7 +40,6 @@ def _judge_model(answer):
     return FunctionModel(fn, stream_function=sfn)
 
 
-# Used by the match_skills tests appended in the next task.
 _SKILL_LINE = re.compile(r"^\d+\. (.+)$", re.MULTILINE)
 
 
@@ -184,9 +184,6 @@ async def test_run_agent_omits_deps_when_none(monkeypatch):
 # ---------------------------------------------------------------------------
 # match_skills orchestration
 # ---------------------------------------------------------------------------
-
-from sira.models.agents.output import CV, JobAnalysis, WorkExperience  # noqa: E402
-from sira.reporting.base import NullReporter, use_reporter  # noqa: E402
 
 
 class _LogReporter(NullReporter):
