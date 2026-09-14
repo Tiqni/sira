@@ -2,7 +2,7 @@
 
 DBOS facts this relies on (verified on dbos 2.31):
 - ``resume_workflow`` only acts on runs that never finished; it is a no-op
-  for SUCCESS and ERROR.
+  for SUCCESS and ERROR. Also, resuming a parent does not resume its children.
 - ``fork_workflow(id, start_step)`` creates a new run that copies every
   checkpointed step before ``start_step`` and executes from there.
 - Child workflow ids derive from the parent id, so forking a parent from the
@@ -64,6 +64,15 @@ async def continue_run(status: WorkflowStatus) -> WorkflowHandleAsync[Any]:
     Raises ValueError when there is nothing to continue.
     """
     if status.status in RESUMABLE_STATUSES:
+        # An interruption during the Parser/Analyst stage leaves the child
+        # workflows PENDING too, and DBOS's resume does not cascade to them:
+        # the resumed parent would wait forever on a child nobody runs.
+        children = await DBOS.list_workflows_async(
+            parent_workflow_id=status.workflow_id
+        )
+        for child in children:
+            if child.status in RESUMABLE_STATUSES:
+                await DBOS.resume_workflow_async(child.workflow_id)
         return await DBOS.resume_workflow_async(status.workflow_id)
     if status.status == "ERROR":
         steps = await DBOS.list_workflow_steps_async(status.workflow_id)

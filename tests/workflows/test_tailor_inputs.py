@@ -1,5 +1,7 @@
 """TailorInputs snapshots everything a durable run needs."""
 
+import pytest
+
 from sira.models.workflow import RunMetadata, TailorInputs
 from sira.workflows import ResumeTailorWorkflow
 from sira.workflows import agents as agents_mod
@@ -41,3 +43,12 @@ def test_tailor_inputs_round_trip_through_pickle(sample_cv):
         metadata=RunMetadata(job_url="https://x", output_dir="/tmp/out"),
     )
     assert pickle.loads(pickle.dumps(inputs)) == inputs
+
+
+@pytest.mark.anyio
+async def test_run_durable_requires_an_active_runtime(monkeypatch):
+    import sira.workflows as wf
+
+    monkeypatch.setattr(wf, "is_active", lambda: False)
+    with pytest.raises(RuntimeError, match="durable_runtime"):
+        await ResumeTailorWorkflow().run("r", job_content="j")

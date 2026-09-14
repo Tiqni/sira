@@ -1,5 +1,6 @@
 """End-to-end durability: replay, fork, checkpoint, steps, fallback reporter."""
 
+import asyncio
 import uuid
 
 import pytest
@@ -141,3 +142,99 @@ async def test_model_request_inside_workflow_is_a_step_and_streams():
     tokens = [e for e in rec.events if e[0] == "token"]
     assert "".join(e[2] for e in tokens) == "probe says hi"
     assert {e[1] for e in tokens} == {"Probe"}
+
+
+async def _wait_for_children(run_id: str, expected: dict[str, str]) -> None:
+    """Children finish on their own tasks; wait until their statuses settle."""
+    for _ in range(50):
+        children = await DBOS.list_workflows_async(parent_workflow_id=run_id)
+        if {c.name: c.status for c in children} == expected:
+            return
+        await asyncio.sleep(0.1)
+    raise AssertionError({c.name: c.status for c in children})
+
+
+@pytest.mark.anyio
+async def test_interrupt_during_parsing_resumes_children_and_parent(
+    monkeypatch, sample_cv
+):
+    """Ctrl+C in the first stage leaves a child PENDING; resume must not hang."""
+    calls = install_pipeline_stubs(monkeypatch, sample_cv, parser_cancel_first=True)
+    run_id = str(uuid.uuid4())
+    with SetWorkflowID(run_id):
+        with pytest.raises(asyncio.CancelledError):
+            await ResumeTailorWorkflow().run("# resume", job_content="job")
+
+    status = await (await DBOS.retrieve_workflow_async(run_id)).get_status()
+    assert status.status == "PENDING"
+    await _wait_for_children(
+        run_id, {PARSE_WORKFLOW_NAME: "PENDING", ANALYZE_WORKFLOW_NAME: "SUCCESS"}
+    )
+
+    install_global_reporter(RecordingReporter())
+    handle = await continue_run(status)
+    assert handle.workflow_id == run_id  # resumed in place
+    result = await asyncio.wait_for(handle.get_result(), timeout=15)
+    assert result.passed is True
+    assert (calls["parser"], calls["analyst"], calls["writer"]) == (2, 1, 1)
+
+
+@pytest.mark.anyio
+async def test_interrupt_during_writing_resumes_without_rerunning_children(
+    monkeypatch, sample_cv
+):
+    calls = install_pipeline_stubs(monkeypatch, sample_cv, writer_cancel_first=True)
+    run_id = str(uuid.uuid4())
+    with SetWorkflowID(run_id):
+        with pytest.raises(asyncio.CancelledError):
+            await ResumeTailorWorkflow().run("# resume", job_content="job")
+
+    status = await (await DBOS.retrieve_workflow_async(run_id)).get_status()
+    assert status.status == "PENDING"
+    await _wait_for_children(
+        run_id, {PARSE_WORKFLOW_NAME: "SUCCESS", ANALYZE_WORKFLOW_NAME: "SUCCESS"}
+    )
+
+    install_global_reporter(RecordingReporter())
+    handle = await continue_run(status)
+    assert handle.workflow_id == run_id
+    result = await asyncio.wait_for(handle.get_result(), timeout=15)
+    assert result.passed is True
+    assert (calls["parser"], calls["analyst"], calls["writer"]) == (1, 1, 2)
+
+
+@pytest.mark.anyio
+async def test_checkpoint_answer_is_not_asked_again_after_a_later_crash(
+    monkeypatch, sample_cv
+):
+    """The answer given at a checkpoint is replayed, not re-prompted, on a fork."""
+    calls = install_pipeline_stubs(
+        monkeypatch, sample_cv, report_weak_first=True, auditor_fail_on_call=2
+    )
+    monkeypatch.setattr("sys.stdin", FakeStdin(is_tty=True))
+    answers = iter(["f", "emphasize backend work"])
+    asked: list[str] = []
+
+    def fake_input(prompt: str) -> str:
+        asked.append(prompt)
+        return next(answers)
+
+    monkeypatch.setattr("builtins.input", fake_input)
+
+    run_id = str(uuid.uuid4())
+    with SetWorkflowID(run_id):
+        with pytest.raises(RuntimeError, match="simulated crash in auditor"):
+            await ResumeTailorWorkflow(interactive=True).run(
+                "# resume", job_content="job"
+            )
+    assert len(asked) == 2  # the choice and the feedback text
+    assert calls["auditor"] == 2
+
+    status = await (await DBOS.retrieve_workflow_async(run_id)).get_status()
+    assert status.status == "ERROR"
+
+    handle = await continue_run(status)
+    assert handle.workflow_id != run_id  # forked after the checkpoint
+    result = await asyncio.wait_for(handle.get_result(), timeout=15)
+    assert result.passed is True
+    assert len(asked) == 2  # replayed from the checkpoint step, not re-asked

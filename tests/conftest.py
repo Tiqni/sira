@@ -119,6 +119,9 @@ def _dbos_runtime(tmp_path_factory):
     event loop is running. pytest-anyio gives every test a fresh loop and shuts
     that loop's default executor down on teardown — which would kill DBOS's
     shared pool for every later test. In tests, leave the loop's executor alone.
+
+    This patch hides that production behaviour, which is why the CLI enters
+    `durable_runtime()` outside `asyncio.run` (see `sira/main.py`).
     """
     import sira.workflows  # noqa: F401
     from dbos import DBOS

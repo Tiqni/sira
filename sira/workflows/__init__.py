@@ -5,6 +5,7 @@ from dbos import DBOS
 from pydantic_ai.exceptions import UnexpectedModelBehavior
 from pydantic_ai.usage import RunUsage
 
+from sira.durability import is_active
 from sira.models.agents.output import CV, CVDiff, FinalReport, JobAnalysis
 from sira.models.workflow import ResumeTailorResult, RunMetadata, TailorInputs
 from sira.reporting.base import (
@@ -341,7 +342,13 @@ class ResumeTailorWorkflow:
 
         DBOS checkpoints every model request. The caller chooses the run id
         with ``dbos.SetWorkflowID`` (the CLI does; tests let DBOS pick one).
+        Requires an active DBOS runtime (``sira.durability.durable_runtime``).
         """
+        if not is_active():
+            raise RuntimeError(
+                "No DBOS runtime is active. Wrap the call in "
+                "`sira.durability.durable_runtime()` (the CLI does this)."
+            )
         self._reporter = reporter or NullReporter()
         try:
             with use_reporter(self._reporter):

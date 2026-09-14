@@ -562,8 +562,8 @@ async def _tailor_impl(
     source_path = converted_resume_path or resume_path_expanded
     metadata = RunMetadata(
         job_url=job_url,
-        resume_source_path=source_path,
-        output_dir=output_dir,
+        resume_source_path=os.path.abspath(source_path),
+        output_dir=os.path.abspath(output_dir),
         output_pattern=output_pattern,
         resume_name_pattern=resume_name_pattern,
     )
@@ -573,9 +573,7 @@ async def _tailor_impl(
     dashboard_ctx = (
         reporter if hasattr(reporter, "__enter__") else contextlib.nullcontext()
     )
-    # durable_runtime launches DBOS for this process (a no-op when a runtime
-    # is already active, e.g. in the test suite).
-    with durable_runtime(), dashboard_ctx, use_reporter(reporter):
+    with dashboard_ctx, use_reporter(reporter):
         install_global_reporter(reporter)
         try:
             logger.info("scraping_job_posting", extra={"url": job_url})
@@ -705,29 +703,33 @@ def tailor(
         "-i",
         help="Pause at quality checkpoints and ask what to do (audit failures, weak match). Allows providing feedback to retry.",
     ),
-) -> int:
+) -> None:
     """Run the full resume tailoring workflow."""
     run_id = str(uuid.uuid4())
     try:
-        code = asyncio.run(
-            _tailor_impl(
-                job_url,
-                resume_path,
-                output_dir,
-                model,
-                verbose=verbose,
-                output_pattern=output_pattern,
-                resume_name_pattern=resume_name_pattern,
-                debug=debug,
-                write_attempts=write_attempts,
-                review_iterations=review_iterations,
-                quality_gate=quality_gate,
-                gate_threshold=gate_threshold,
-                fast=fast,
-                interactive=interactive,
-                run_id=run_id,
+        # The DBOS runtime must outlive the event loop: DBOS binds its thread
+        # pool as the loop's default executor and destroy() shuts that pool
+        # down.
+        with durable_runtime():
+            code = asyncio.run(
+                _tailor_impl(
+                    job_url,
+                    resume_path,
+                    output_dir,
+                    model,
+                    verbose=verbose,
+                    output_pattern=output_pattern,
+                    resume_name_pattern=resume_name_pattern,
+                    debug=debug,
+                    write_attempts=write_attempts,
+                    review_iterations=review_iterations,
+                    quality_gate=quality_gate,
+                    gate_threshold=gate_threshold,
+                    fast=fast,
+                    interactive=interactive,
+                    run_id=run_id,
+                )
             )
-        )
     except KeyboardInterrupt:
         console.print(
             f"\n⏹  Interrupted. If the pipeline had started, continue it with: sira resume {run_id}"
@@ -856,8 +858,10 @@ async def _re_tailor_impl(
 
     metadata = RunMetadata(
         job_id=job_id,
-        resume_source_path=_resume_source_path or "",
-        output_dir=output_dir,
+        resume_source_path=os.path.abspath(_resume_source_path)
+        if _resume_source_path
+        else "",
+        output_dir=os.path.abspath(output_dir),
         output_pattern=output_pattern,
         resume_name_pattern=resume_name_pattern,
         job_posting_markdown=job_posting_markdown,
@@ -868,7 +872,7 @@ async def _re_tailor_impl(
     dashboard_ctx = (
         reporter if hasattr(reporter, "__enter__") else contextlib.nullcontext()
     )
-    with durable_runtime(), dashboard_ctx, use_reporter(reporter):
+    with dashboard_ctx, use_reporter(reporter):
         install_global_reporter(reporter)
         try:
             exit_code, resume_path_out, report_path_out, result = await _run_workflow(
@@ -963,30 +967,31 @@ def re_tailor(
         "-i",
         help="Pause at quality checkpoints and ask what to do (audit failures, weak match). Allows providing feedback to retry.",
     ),
-) -> int:
+) -> None:
     """Re-run tailoring with recommendations from a prior audit."""
     run_id = str(uuid.uuid4())
     try:
-        code = asyncio.run(
-            _re_tailor_impl(
-                job_id,
-                recommendations,
-                resume_path,
-                output_dir,
-                model,
-                verbose=verbose,
-                output_pattern=output_pattern,
-                resume_name_pattern=resume_name_pattern,
-                debug=debug,
-                write_attempts=write_attempts,
-                review_iterations=review_iterations,
-                quality_gate=quality_gate,
-                gate_threshold=gate_threshold,
-                fast=fast,
-                interactive=interactive,
-                run_id=run_id,
+        with durable_runtime():
+            code = asyncio.run(
+                _re_tailor_impl(
+                    job_id,
+                    recommendations,
+                    resume_path,
+                    output_dir,
+                    model,
+                    verbose=verbose,
+                    output_pattern=output_pattern,
+                    resume_name_pattern=resume_name_pattern,
+                    debug=debug,
+                    write_attempts=write_attempts,
+                    review_iterations=review_iterations,
+                    quality_gate=quality_gate,
+                    gate_threshold=gate_threshold,
+                    fast=fast,
+                    interactive=interactive,
+                    run_id=run_id,
+                )
             )
-        )
     except KeyboardInterrupt:
         console.print(
             f"\n⏹  Interrupted. If the pipeline had started, continue it with: sira resume {run_id}"
@@ -1000,74 +1005,67 @@ async def _resume_impl(run_id: str, *, verbose: bool = False) -> int:
     reporter = (
         VerboseReporter(console=console) if verbose else LiveDashboard(console=console)
     )
-    with durable_runtime():
-        try:
-            handle = await DBOS.retrieve_workflow_async(run_id)
-            status = await handle.get_status()
-        except Exception as e:
-            console.print(
-                f"[red]❌ Unknown run id: {run_id} ({type(e).__name__})[/red]"
-            )
-            return 1
-        if status.name != TAILOR_WORKFLOW_NAME:
-            console.print(
-                f"[red]❌ {run_id} is not a tailoring run ({status.name})[/red]"
-            )
-            return 1
-        if status.app_version != application_version():
-            console.print(
-                f"[red]❌ This run was started with Sira {status.app_version}; "
-                f"installed is {application_version()}. Start a new run.[/red]"
-            )
-            return 1
-        inputs = status.input["args"][0] if status.input else None
-        if not isinstance(inputs, TailorInputs):
-            console.print(f"[red]❌ Stored inputs for {run_id} are unreadable[/red]")
-            return 1
+    try:
+        handle = await DBOS.retrieve_workflow_async(run_id)
+        status = await handle.get_status()
+    except Exception as e:
+        console.print(f"[red]❌ Unknown run id: {run_id} ({type(e).__name__})[/red]")
+        return 1
+    if status.name != TAILOR_WORKFLOW_NAME:
+        console.print(f"[red]❌ {run_id} is not a tailoring run ({status.name})[/red]")
+        return 1
+    if status.app_version != application_version():
+        console.print(
+            f"[red]❌ This run was started with Sira {status.app_version}; "
+            f"installed is {application_version()}. Start a new run.[/red]"
+        )
+        return 1
+    inputs = status.input["args"][0] if status.input else None
+    if not isinstance(inputs, TailorInputs):
+        console.print(f"[red]❌ Stored inputs for {run_id} are unreadable[/red]")
+        return 1
 
-        if status.status == "SUCCESS":
-            console.print("♻️  Run already completed — reusing its result")
-            result = await handle.get_result()  # the stored output, no re-run
-        else:
-            dashboard_ctx = (
-                reporter if hasattr(reporter, "__enter__") else contextlib.nullcontext()
-            )
-            with dashboard_ctx, use_reporter(reporter):
-                # The continued run executes on DBOS's background thread,
-                # where only the process-wide reporter is visible.
-                install_global_reporter(reporter)
+    if status.status == "SUCCESS":
+        console.print("♻️  Run already completed — reusing its result")
+        result = await handle.get_result()  # the stored output, no re-run
+    else:
+        dashboard_ctx = (
+            reporter if hasattr(reporter, "__enter__") else contextlib.nullcontext()
+        )
+        with dashboard_ctx, use_reporter(reporter):
+            # The continued run executes on DBOS's background thread,
+            # where only the process-wide reporter is visible.
+            install_global_reporter(reporter)
+            try:
                 try:
-                    try:
-                        handle = await continue_run(status)
-                    except ValueError as e:
-                        console.print(f"[red]❌ {e}[/red]")
-                        return 1
-                    if handle.workflow_id != run_id:
-                        console.print(f"🧾 Continued as run: {handle.workflow_id}")
-                    try:
-                        result = await handle.get_result()
-                    except UserAbortedError as e:
-                        console.print(f"[yellow]🚫 {e}[/yellow]")
-                        return 1
-                    except PipelineError as e:
-                        console.print(f"[red]❌ {e}[/red]")
-                        console.print(
-                            f"[yellow]💡 Retry with: sira resume {handle.workflow_id}[/yellow]"
-                        )
-                        return 1
-                    except typer.Exit:
-                        raise
-                    except Exception as e:  # noqa: BLE001 — top-level CLI boundary
-                        logger.error("resume_failed", exc_info=True)
-                        console.print(
-                            f"[red]❌ Run failed: {type(e).__name__}: {e}[/red]"
-                        )
-                        console.print(
-                            f"[yellow]💡 Retry with: sira resume {handle.workflow_id}[/yellow]"
-                        )
-                        return 1
-                finally:
-                    install_global_reporter(None)
+                    handle = await continue_run(status)
+                except ValueError as e:
+                    console.print(f"[red]❌ {e}[/red]")
+                    return 1
+                if handle.workflow_id != run_id:
+                    console.print(f"🧾 Continued as run: {handle.workflow_id}")
+                try:
+                    result = await handle.get_result()
+                except UserAbortedError as e:
+                    console.print(f"[yellow]🚫 {e}[/yellow]")
+                    return 1
+                except PipelineError as e:
+                    console.print(f"[red]❌ {e}[/red]")
+                    console.print(
+                        f"[yellow]💡 Retry with: sira resume {handle.workflow_id}[/yellow]"
+                    )
+                    return 1
+                except typer.Exit:
+                    raise
+                except Exception as e:  # noqa: BLE001 — top-level CLI boundary
+                    logger.error("resume_failed", exc_info=True)
+                    console.print(f"[red]❌ Run failed: {type(e).__name__}: {e}[/red]")
+                    console.print(
+                        f"[yellow]💡 Retry with: sira resume {handle.workflow_id}[/yellow]"
+                    )
+                    return 1
+            finally:
+                install_global_reporter(None)
 
     meta = inputs.metadata
     exit_code, resume_path_out, report_path_out = _write_outputs(
@@ -1112,7 +1110,8 @@ def resume(
 ) -> None:
     """Continue a killed, crashed, or failed run from its last checkpoint."""
     try:
-        code = asyncio.run(_resume_impl(run_id, verbose=verbose))
+        with durable_runtime():
+            code = asyncio.run(_resume_impl(run_id, verbose=verbose))
     except KeyboardInterrupt:
         console.print(f"\n⏹  Interrupted. Continue again with: sira resume {run_id}")
         raise typer.Exit(code=130)
@@ -1120,10 +1119,9 @@ def resume(
 
 
 async def _runs_impl(limit: int) -> None:
-    with durable_runtime():
-        statuses = await DBOS.list_workflows_async(
-            name=TAILOR_WORKFLOW_NAME, sort_desc=True, limit=limit, load_output=False
-        )
+    statuses = await DBOS.list_workflows_async(
+        name=TAILOR_WORKFLOW_NAME, sort_desc=True, limit=limit, load_output=False
+    )
     if not statuses:
         console.print("No runs recorded yet.")
         return
@@ -1136,7 +1134,10 @@ async def _runs_impl(limit: int) -> None:
     table.add_column("Started")
     table.add_column("Duration")
     for st in statuses:
-        inputs = st.input["args"][0] if st.input else None
+        try:
+            inputs = st.input["args"][0] if st.input else None
+        except Exception:  # noqa: BLE001 — a row written by another version
+            inputs = None
         meta = inputs.metadata if isinstance(inputs, TailorInputs) else RunMetadata()
         job = meta.job_url or (f"re-tailor of {meta.job_id}" if meta.job_id else "-")
         started = (
@@ -1157,7 +1158,8 @@ def runs(
     limit: int = typer.Option(10, help="How many recent runs to show"),
 ) -> None:
     """List recent tailoring runs and their status."""
-    asyncio.run(_runs_impl(limit))
+    with durable_runtime():
+        asyncio.run(_runs_impl(limit))
 
 
 def run():
