@@ -1,11 +1,14 @@
 """Tests for the ProgressReporter seam."""
 
+import threading
+
 import pytest
 
 from sira.reporting.base import (
     NullReporter,
     ProgressReporter,
     get_active_reporter,
+    install_global_reporter,
     use_reporter,
 )
 
@@ -91,3 +94,40 @@ def test_use_reporter_restores_on_exception():
 def test_null_reporter_log_prints(capsys):
     NullReporter().log("hello-null")
     assert "hello-null" in capsys.readouterr().out
+
+
+def test_global_reporter_is_fallback_when_no_context_reporter():
+    rec = RecordingReporter()
+    install_global_reporter(rec)
+    try:
+        assert get_active_reporter() is rec
+    finally:
+        install_global_reporter(None)
+    assert isinstance(get_active_reporter(), NullReporter)
+
+
+def test_context_reporter_wins_over_global():
+    global_rec = RecordingReporter()
+    local_rec = RecordingReporter()
+    install_global_reporter(global_rec)
+    try:
+        with use_reporter(local_rec):
+            assert get_active_reporter() is local_rec
+        assert get_active_reporter() is global_rec
+    finally:
+        install_global_reporter(None)
+
+
+def test_global_reporter_visible_from_another_thread():
+    """A resumed DBOS workflow runs on a background thread with no contextvars."""
+    rec = RecordingReporter()
+    install_global_reporter(rec)
+    seen: list = []
+    try:
+        with use_reporter(RecordingReporter()):  # only visible in this thread
+            t = threading.Thread(target=lambda: seen.append(get_active_reporter()))
+            t.start()
+            t.join()
+    finally:
+        install_global_reporter(None)
+    assert seen == [rec]

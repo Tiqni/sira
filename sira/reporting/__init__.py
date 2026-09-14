@@ -2,6 +2,7 @@ from sira.reporting.base import (
     NullReporter,
     ProgressReporter,
     get_active_reporter,
+    install_global_reporter,
     use_reporter,
 )
 from sira.reporting.dashboard import LiveDashboard
@@ -13,5 +14,6 @@ __all__ = [
     "ProgressReporter",
     "VerboseReporter",
     "get_active_reporter",
+    "install_global_reporter",
     "use_reporter",
 ]
