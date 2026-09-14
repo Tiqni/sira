@@ -61,7 +61,7 @@ The flow spans several files; the order is **not** all inside the workflow:
 
 - **Never hallucinate / anti-cliché**: agents may only rephrase existing resume content. The cliché blacklist ("spearheaded", "leveraged", "synergy", "tapestry", "game-changer", …) lives in the system prompts in `agents.py` — keep it consistent if you edit prompts.
 - **Retry counts vary per agent** and are set inline in `agents.py` (don't assume a single value — the older docs that claim a uniform `retries=5` are stale).
-- **Ollama** requires `OLLAMA_BASE_URL` (e.g. `http://localhost:11434/v1`); pydantic-ai 1.24 has no default. Cloud models (`ollama:…:cloud`) route through the local daemon after `ollama signin`.
+- **Ollama** requires `OLLAMA_BASE_URL` (e.g. `http://localhost:11434/v1`); pydantic-ai 2.x has no default. Cloud models (`ollama:…:cloud`) route through the local daemon after `ollama signin`.
 - `utils/validate_inputs.py` and the Makefile `run`/`make run` target are **deprecated/broken** — use `uv run sira …`.
 - `cover_letter_writer_agent` and `scraper_agent` exist but are **not wired into the workflow** (`job_scraper_agent` is the one the CLI uses).
 - `re-tailor` reuses the stored job posting (no re-scrape); if the original resume file is gone from disk, pass `--resume-path`.

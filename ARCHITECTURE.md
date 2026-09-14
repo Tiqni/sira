@@ -339,7 +339,7 @@ Both commands are synchronous wrappers (`def`) that call `asyncio.run()` on asyn
 | ----------------- | --------------- | ------------------ |
 | Language          | Python          | ≥ 3.13             |
 | Package manager   | uv              | latest             |
-| Agent framework   | pydantic-ai     | ≥ 1.24.0           |
+| Agent framework   | pydantic-ai     | ≥ 2.43, < 3        |
 | Data validation   | Pydantic v2     | (via pydantic-ai)  |
 | CLI framework     | Typer           | ≥ 0.25.1           |
 | Web scraping      | Playwright      | ≥ 1.56.0           |

@@ -174,8 +174,9 @@ async def run_agent(
     *,
     verbose: bool = False,
     agent_label: str = "",
-    usage: Usage | None = None,
+    usage: RunUsage | None = None,
     usage_limits: UsageLimits | None = None,
+    model: str | None = None,
 ) -> AgentRunResult: ...
 ```
 

@@ -6,6 +6,12 @@ repo_name: Tiqni/sira
 edit_uri: edit/main/docs/
 copyright: MIT licensed. Built with MkDocs Material.
 
+# Design specs and implementation plans live under docs/superpowers/ so they
+# travel with the code, but they are working notes, not site pages. Without
+# this exclusion `mkdocs build --strict` fails because they are not in `nav`.
+exclude_docs: |
+  superpowers/
+
 validation:
   # A link to a page that does not exist, or an anchor that does not exist,
   # becomes a warning -- and `mkdocs build --strict` turns warnings into a

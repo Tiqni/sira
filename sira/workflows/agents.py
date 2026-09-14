@@ -18,7 +18,7 @@ from pydantic_ai.messages import TextPartDelta, ThinkingPartDelta
 from pydantic_ai.models import infer_model
 from pydantic_ai.models.openai import OpenAIChatModel
 from pydantic_ai.providers.openai import OpenAIProvider
-from pydantic_ai.usage import Usage, UsageLimits
+from pydantic_ai.usage import RunUsage, UsageLimits
 from rich.console import Console
 
 from sira.models.agents.output import (
@@ -30,6 +30,12 @@ from sira.models.agents.output import (
     FinalReport,
 )
 from sira.reporting.base import get_active_reporter
+
+import pydantic_ai
+
+# pydantic-ai 2.x prints a first-run banner to stderr; it would land inside the
+# Rich live dashboard. Sira owns its own output, so turn it off at import.
+pydantic_ai.BANNER_ENABLED = False
 
 logger = logging.getLogger(__name__)
 _console = Console()
@@ -56,7 +62,7 @@ async def run_agent(
     *,
     verbose: bool = False,  # retained for call-site compatibility; reporter drives streaming
     agent_label: str = "",
-    usage: Usage | None = None,
+    usage: RunUsage | None = None,
     usage_limits: UsageLimits | None = None,
     model: str | None = None,
 ) -> AgentRunResult:
@@ -66,7 +72,7 @@ async def run_agent(
     run_kwargs: dict[str, Any] = {"usage": usage, "usage_limits": usage_limits}
     resolved = model if model is not None else resolve_model(agent_label)
     if resolved is not None:
-        run_kwargs["model"] = resolved
+        run_kwargs["model"] = normalize_model_name(resolved)
 
     _safe_report(reporter.agent_start, agent_label, prompt)
     start = time.monotonic()
@@ -84,21 +90,27 @@ async def run_agent(
 
     try:
         result = None
-        async for event in agent.run_stream_events(prompt, **run_kwargs):
-            if isinstance(event, AgentRunResultEvent):
-                result = event.result
-            elif isinstance(event, PartDeltaEvent):
-                if isinstance(event.delta, TextPartDelta):
-                    _safe_report(
-                        reporter.token, agent_label, event.delta.content_delta, "output"
-                    )
-                elif isinstance(event.delta, ThinkingPartDelta):
-                    _safe_report(
-                        reporter.token,
-                        agent_label,
-                        event.delta.content_delta,
-                        "thinking",
-                    )
+        # pydantic-ai v2: run_stream_events() must be used as an async context
+        # manager so the background run task is cleaned up if we stop early.
+        async with agent.run_stream_events(prompt, **run_kwargs) as events:
+            async for event in events:
+                if isinstance(event, AgentRunResultEvent):
+                    result = event.result
+                elif isinstance(event, PartDeltaEvent):
+                    if isinstance(event.delta, TextPartDelta):
+                        _safe_report(
+                            reporter.token,
+                            agent_label,
+                            event.delta.content_delta,
+                            "output",
+                        )
+                    elif isinstance(event.delta, ThinkingPartDelta):
+                        _safe_report(
+                            reporter.token,
+                            agent_label,
+                            event.delta.content_delta,
+                            "thinking",
+                        )
 
         if result is None:
             result = await agent.run(prompt, **run_kwargs)
@@ -137,6 +149,21 @@ _writer_qs = _QualityState()
 _auditor_qs = _QualityState()
 _cover_qs = _QualityState()
 
+
+def normalize_model_name(name: str | None) -> str | None:
+    """Map the bare ``openai:`` prefix to ``openai-chat:`` for pydantic-ai.
+
+    pydantic-ai 2.x resolves ``openai:<model>`` to the OpenAI Responses API,
+    which stores requests on OpenAI's side by default. Sira has always used
+    the Chat Completions API, so keep that behavior. Users who want the
+    Responses API can pass ``openai-responses:<model>`` explicitly. The
+    user-visible model name (``get_model()``, logs) is never changed.
+    """
+    if name is not None and name.startswith("openai:"):
+        return "openai-chat:" + name.removeprefix("openai:")
+    return name
+
+
 MODEL_NAME = "openai:gpt-5-mini"
 _original_model = MODEL_NAME
 
@@ -155,7 +182,7 @@ def _build_default_model() -> Any:
     in which case OpenAI returns a clear authentication error.
     """
     if os.environ.get("OPENAI_API_KEY"):
-        return infer_model(MODEL_NAME)
+        return infer_model(normalize_model_name(MODEL_NAME))
     # No key: build the OpenAI default with a placeholder so import never fails.
     _bare_name = MODEL_NAME.partition(":")[2] or MODEL_NAME
     return OpenAIChatModel(

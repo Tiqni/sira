@@ -23,11 +23,17 @@ dependencies = [
     "markdown-pdf>=1.10",
     "markitdown[docx,pdf]>=0.1.0",
     "playwright>=1.56.0",
-    "pydantic-ai>=1.24.0",
+    "pydantic-ai[groq,mistral,cohere,bedrock]>=2.43,<3",
     "python-docx>=1.1.0",
     "rich>=14.2.0",
     "typer>=0.25.1",
 ]
+
+[project.optional-dependencies]
+# xAI moved to the native `xai-sdk` in pydantic-ai 2.x. That SDK pins
+# `packaging<26`, which conflicts with the `commitizen` dev tool, so xAI
+# support is an opt-in extra: `uv sync --extra xai --no-dev`.
+xai = ["pydantic-ai[xai]>=2.43,<3"]
 
 [project.scripts]
 sira = "sira.main:run"
@@ -44,6 +50,11 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["sira"]
+
+[tool.uv]
+# The `xai` extra and the `dev` group cannot be installed together
+# (xai-sdk needs packaging<26, commitizen needs packaging>=26).
+conflicts = [[{ extra = "xai" }, { group = "dev" }]]
 
 [dependency-groups]
 dev = [
