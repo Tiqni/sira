@@ -8,6 +8,7 @@ computed here from them is deterministic.
 from __future__ import annotations
 
 from collections.abc import Mapping
+from typing import Literal
 
 from sira.models.agents.output import (
     CV,
@@ -211,3 +212,64 @@ def compute_gap_analysis(
         missing_keywords=missing_kw,
         keyword_coverage_percent=_percent(len(covered_kw), len(job.keywords_to_target)),
     )
+
+
+# ---------------------------------------------------------------------------
+# Match score and recommendation (documented in ARCHITECTURE.md)
+# ---------------------------------------------------------------------------
+
+SCORE_WEIGHT_HARD = 60
+SCORE_WEIGHT_SOFT = 20
+SCORE_WEIGHT_KEYWORDS = 20
+
+STRONG_MATCH_MIN_SCORE = 75
+STRONG_MATCH_MIN_HARD_COVERAGE = 75.0
+PARTIAL_MATCH_MIN_SCORE = 50
+
+Recommendation = Literal["Strong Match", "Partial Match", "Weak Match"]
+
+
+def compute_match_score(gap: GapAnalysis) -> int:
+    """Weighted coverage: hard skills 60, soft skills 20, ATS keywords 20.
+
+    A bucket the job lists nothing for (covered + missing empty) is dropped
+    and the remaining weights are rescaled to keep the score on 0–100. All
+    buckets empty gives 0. Uses Python's built-in ``round`` (half to even).
+    """
+    buckets = (
+        (
+            SCORE_WEIGHT_HARD,
+            gap.hard_skill_coverage_percent,
+            len(gap.covered_hard_skills) + len(gap.missing_hard_skills),
+        ),
+        (
+            SCORE_WEIGHT_SOFT,
+            gap.soft_skill_coverage_percent,
+            len(gap.covered_soft_skills) + len(gap.missing_soft_skills),
+        ),
+        (
+            SCORE_WEIGHT_KEYWORDS,
+            gap.keyword_coverage_percent,
+            len(gap.covered_keywords) + len(gap.missing_keywords),
+        ),
+    )
+    active = [(weight, pct) for weight, pct, total in buckets if total > 0]
+    if not active:
+        return 0
+    weight_sum = sum(weight for weight, _ in active)
+    score = sum(weight * pct for weight, pct in active) / weight_sum
+    return max(0, min(100, round(score)))
+
+
+def compute_recommendation(score: int, gap: GapAnalysis) -> Recommendation:
+    """Verdict from the score, with a hard-skill guard on "Strong Match"."""
+    hard_total = len(gap.covered_hard_skills) + len(gap.missing_hard_skills)
+    hard_ok = (
+        hard_total == 0
+        or gap.hard_skill_coverage_percent >= STRONG_MATCH_MIN_HARD_COVERAGE
+    )
+    if score >= STRONG_MATCH_MIN_SCORE and hard_ok:
+        return "Strong Match"
+    if score >= PARTIAL_MATCH_MIN_SCORE:
+        return "Partial Match"
+    return "Weak Match"

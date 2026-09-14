@@ -323,3 +323,112 @@ def test_gap_analysis_percent_is_zero_when_job_lists_no_skills(
     gap = compute_gap_analysis(original_cv, tailored_cv, job, skill_matches={})
     assert gap.hard_skill_coverage_percent == 0.0
     assert gap.soft_skill_coverage_percent == 0.0
+
+
+# ---------------------------------------------------------------------------
+# compute_match_score / compute_recommendation
+# ---------------------------------------------------------------------------
+
+
+def _gap(
+    *,
+    hard: tuple[int, int] = (0, 0),
+    soft: tuple[int, int] = (0, 0),
+    kw: tuple[int, int] = (0, 0),
+):
+    """Build a GapAnalysis from (covered, total) counts per bucket."""
+    from sira.models.agents.output import GapAnalysis
+
+    def names(prefix: str, n: int) -> list[str]:
+        return [f"{prefix}{i}" for i in range(n)]
+
+    def pct(c: int, t: int) -> float:
+        return round(c / t * 100.0, 1) if t else 0.0
+
+    return GapAnalysis(
+        covered_hard_skills=names("h", hard[0]),
+        missing_hard_skills=names("hm", hard[1] - hard[0]),
+        hard_skill_coverage_percent=pct(*hard),
+        covered_soft_skills=names("s", soft[0]),
+        missing_soft_skills=names("sm", soft[1] - soft[0]),
+        soft_skill_coverage_percent=pct(*soft),
+        covered_keywords=names("k", kw[0]),
+        missing_keywords=names("km", kw[1] - kw[0]),
+        keyword_coverage_percent=pct(*kw),
+    )
+
+
+def test_match_score_all_covered_is_100():
+    from sira.utils.cv_diff import compute_match_score
+
+    assert compute_match_score(_gap(hard=(4, 4), soft=(2, 2), kw=(5, 5))) == 100
+
+
+def test_match_score_nothing_covered_is_0():
+    from sira.utils.cv_diff import compute_match_score
+
+    assert compute_match_score(_gap(hard=(0, 4), soft=(0, 2), kw=(0, 5))) == 0
+
+
+def test_match_score_all_buckets_empty_is_0():
+    from sira.utils.cv_diff import compute_match_score
+
+    assert compute_match_score(_gap()) == 0
+
+
+def test_match_score_weights_60_20_20():
+    from sira.utils.cv_diff import compute_match_score
+
+    # 0.6*50 + 0.2*100 + 0.2*50 = 30 + 20 + 10
+    assert compute_match_score(_gap(hard=(2, 4), soft=(2, 2), kw=(1, 2))) == 60
+
+
+def test_match_score_rescales_when_a_bucket_is_empty():
+    from sira.utils.cv_diff import compute_match_score
+
+    # soft empty: (60*50 + 20*100) / 80 = 62.5 -> Python round() -> 62 (banker's)
+    assert compute_match_score(_gap(hard=(2, 4), kw=(2, 2))) == 62
+
+
+def test_match_score_single_bucket_uses_that_coverage():
+    from sira.utils.cv_diff import compute_match_score
+
+    # only hard skills listed: 2/3 -> 66.7 -> 67
+    assert compute_match_score(_gap(hard=(2, 3))) == 67
+
+
+def test_match_score_issue_example_is_well_above_zero():
+    """Issue #2: keywords 33.3 %, semantic hard 70 %, soft 80 % -> 65, not 0."""
+    from sira.utils.cv_diff import compute_match_score
+
+    assert compute_match_score(_gap(hard=(7, 10), soft=(4, 5), kw=(15, 45))) == 65
+
+
+def test_recommendation_thresholds(subtests):
+    from sira.utils.cv_diff import compute_recommendation
+
+    strong_gap = _gap(hard=(4, 4), soft=(2, 2), kw=(5, 5))
+    cases = [
+        (75, strong_gap, "Strong Match"),
+        (74, strong_gap, "Partial Match"),
+        (50, strong_gap, "Partial Match"),
+        (49, strong_gap, "Weak Match"),
+        (0, strong_gap, "Weak Match"),
+    ]
+    for score, gap, expected in cases:
+        with subtests.test(score=score):
+            assert compute_recommendation(score, gap) == expected
+
+
+def test_recommendation_strong_needs_hard_coverage_75(subtests):
+    from sira.utils.cv_diff import compute_recommendation
+
+    with subtests.test("hard_70_blocks_strong"):
+        gap = _gap(hard=(7, 10), soft=(5, 5), kw=(5, 5))  # hard 70 %
+        assert compute_recommendation(90, gap) == "Partial Match"
+    with subtests.test("hard_75_allows_strong"):
+        gap = _gap(hard=(3, 4), soft=(5, 5), kw=(5, 5))  # hard 75 %
+        assert compute_recommendation(90, gap) == "Strong Match"
+    with subtests.test("no_hard_skills_allows_strong"):
+        gap = _gap(soft=(5, 5), kw=(5, 5))
+        assert compute_recommendation(90, gap) == "Strong Match"
