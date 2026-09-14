@@ -15,8 +15,8 @@ from tests.workflows.stubs import install_pipeline_stubs
 runner = CliRunner()
 
 
-def _memory_patches():
-    service = MagicMock(
+def _memory_patches(service=None):
+    service = service or MagicMock(
         aresolve_original_resume=AsyncMock(
             return_value=MagicMock(source=MagicMock(id="src"), cv=None)
         ),
@@ -212,3 +212,33 @@ def test_tailor_exits_1_with_hint_on_unmapped_failure(tmp_path, monkeypatch):
     assert result.exit_code == 1, result.output
     assert "writer crashed" in result.output
     assert "sira resume" in result.output
+
+
+def test_resume_saves_to_memory_from_stored_text_when_the_file_is_gone(
+    tmp_path, sample_cv, monkeypatch
+):
+    """The resume file recorded at start no longer exists; the stored text is used."""
+    run_id, _, exc = _start_run(tmp_path, sample_cv, monkeypatch)
+    assert exc is None
+    assert not (tmp_path / "resume.md").exists()  # never created in _start_run
+
+    service = MagicMock(
+        aresolve_original_resume=AsyncMock(
+            return_value=MagicMock(source=MagicMock(id="src"), cv=None)
+        ),
+        save_tailored_resume=MagicMock(return_value=MagicMock(id="job-1")),
+    )
+    patches = _memory_patches(service)
+    for p in patches:
+        p.start()
+    try:
+        result = runner.invoke(app, ["resume", run_id])
+    finally:
+        for p in patches:
+            p.stop()
+    assert result.exit_code == 0, result.output
+    service.aresolve_original_resume.assert_awaited_once_with(
+        path=str(tmp_path / "resume.md"), content="# resume"
+    )
+    service.save_tailored_resume.assert_called_once()
+    assert "Job ID: job-1" in result.output

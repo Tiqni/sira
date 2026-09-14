@@ -230,6 +230,8 @@ uv run sira runs --limit 10
 
 A run can only be resumed by the same Sira version that started it.
 
+Durability covers the pipeline (parsing, analysis, writing, review, audit, report). The steps before it — resume conversion, the parsed-resume cache lookup, and scraping the job posting — are quick pre-flight work and are not checkpointed: a crash there leaves no run to resume, so just run `sira tailor` again.
+
 ### Live progress & speed
 
 By default a **live progress dashboard** is shown in the terminal, updating as each pipeline stage completes. In non-TTY environments (CI, pipes) it degrades to plain line-by-line logging automatically.

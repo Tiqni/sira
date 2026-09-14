@@ -89,9 +89,19 @@ def _slugify(text: str) -> str:
     return text
 
 
-def _resolve_pattern(template: str, result: ResumeTailorResult, cv: CV) -> str:
-    """Replace template variables with slugified values from result and CV."""
-    timestamp = date.today().strftime("%Y%m%d")
+def _resolve_pattern(
+    template: str,
+    result: ResumeTailorResult,
+    cv: CV,
+    *,
+    timestamp: str | None = None,
+) -> str:
+    """Replace template variables with slugified values from result and CV.
+
+    ``timestamp`` (YYYYMMDD) defaults to today; a continued run passes the
+    date it started so it writes to the same files as the original command.
+    """
+    timestamp = timestamp or date.today().strftime("%Y%m%d")
     replacements = {
         "{company_name}": _slugify(result.company_name),
         "{job_title}": _slugify(result.job_title),
@@ -214,6 +224,7 @@ def _write_outputs(
     output_pattern: str,
     resume_name_pattern: str,
     debug: bool,
+    timestamp: str | None = None,
 ) -> tuple[int, str | None, str | None]:
     """Write the tailored CV and the report; return (exit_code, resume_path, report_path).
 
@@ -242,7 +253,9 @@ def _write_outputs(
     )
 
     # Resolve directory and file name patterns
-    job_dir_name = _resolve_pattern(output_pattern, result, cv_fallback)
+    job_dir_name = _resolve_pattern(
+        output_pattern, result, cv_fallback, timestamp=timestamp
+    )
     if not _is_safe_path_component(job_dir_name):
         console.print(
             f"[red]❌ Invalid output pattern resolves to unsafe path: {job_dir_name}[/red]"
@@ -261,7 +274,9 @@ def _write_outputs(
             f"{resume_content[:500]}"
         )
 
-    resume_base_name = _resolve_pattern(resume_name_pattern, result, cv_fallback)
+    resume_base_name = _resolve_pattern(
+        resume_name_pattern, result, cv_fallback, timestamp=timestamp
+    )
     if not _is_safe_path_component(resume_base_name):
         console.print(
             f"[red]❌ Invalid resume name pattern resolves to unsafe path: {resume_base_name}[/red]"
@@ -372,6 +387,7 @@ async def _run_workflow(
         output_pattern=output_pattern,
         resume_name_pattern=resume_name_pattern,
         debug=debug,
+        timestamp=metadata.started_on if metadata and metadata.started_on else None,
     )
     return exit_code, resume_path_out, report_path_out, result
 
@@ -382,8 +398,13 @@ async def _save_tailor_to_memory(
     job_url: str,
     source_path: str,
     job_posting_markdown: str,
+    resume_text: str | None = None,
 ) -> str | None:
-    """Persist a `tailor` result; return the job id, or None when saving failed."""
+    """Persist a `tailor` result; return the job id, or None when saving failed.
+
+    ``resume_text`` is the text read when the run started; passing it lets a
+    continued run save its record even if the resume file has since moved.
+    """
     try:
         repo = SQLiteResumeMemoryRepository()
         parser = PydanticAIResumeParser()
@@ -391,7 +412,9 @@ async def _save_tailor_to_memory(
 
         # Use converted markdown path for non-markdown resumes so
         # resolve_original_resume can read it as text.
-        resolved = await service.aresolve_original_resume(path=source_path)
+        resolved = await service.aresolve_original_resume(
+            path=source_path, content=resume_text
+        )
         job_fingerprint = _get_job_fingerprint(job_url, result.job_title)
 
         audit = _audit_result_from_dict(result.audit_report)
@@ -561,6 +584,7 @@ async def _tailor_impl(
 
     source_path = converted_resume_path or resume_path_expanded
     metadata = RunMetadata(
+        started_on=date.today().strftime("%Y%m%d"),
         job_url=job_url,
         resume_source_path=os.path.abspath(source_path),
         output_dir=os.path.abspath(output_dir),
@@ -646,6 +670,7 @@ async def _tailor_impl(
             job_url=job_url,
             source_path=source_path,
             job_posting_markdown=job_posting_markdown,
+            resume_text=resume_content,
         )
         console.print("\n✅ Job completed")
         if resume_path_out:
@@ -857,6 +882,7 @@ async def _re_tailor_impl(
     console.print(f"📝 Applying recommendations: {recommendations[:50]}...")
 
     metadata = RunMetadata(
+        started_on=date.today().strftime("%Y%m%d"),
         job_id=job_id,
         resume_source_path=os.path.abspath(_resume_source_path)
         if _resume_source_path
@@ -1075,6 +1101,7 @@ async def _resume_impl(run_id: str, *, verbose: bool = False) -> int:
         output_pattern=meta.output_pattern,
         resume_name_pattern=meta.resume_name_pattern,
         debug=inputs.debug,
+        timestamp=meta.started_on or None,
     )
     if exit_code == 0:
         if meta.job_id:
@@ -1090,6 +1117,7 @@ async def _resume_impl(run_id: str, *, verbose: bool = False) -> int:
                 job_url=meta.job_url or "",
                 source_path=meta.resume_source_path,
                 job_posting_markdown=meta.job_posting_markdown,
+                resume_text=inputs.resume_text,
             )
         console.print("\n✅ Job completed")
         if resume_path_out:

@@ -150,3 +150,16 @@ class TestIsSafePathComponent:
 
     def test_null_bytes_are_unsafe(self):
         assert not _is_safe_path_component("foo\x00bar")
+
+
+def test_resolve_pattern_uses_the_given_timestamp_instead_of_today():
+    """A continued run must write to the files its start date would have chosen."""
+    result = _make_result()
+    cv = _make_cv()
+    assert (
+        _resolve_pattern("{timestamp}-{company_name}", result, cv, timestamp="20260101")
+        == "20260101-acme_corp"
+    )
+    today = date.today().strftime("%Y%m%d")
+    assert _resolve_pattern("{timestamp}", result, cv) == today
+    assert _resolve_pattern("{timestamp}", result, cv, timestamp=None) == today

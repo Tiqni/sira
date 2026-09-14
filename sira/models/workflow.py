@@ -28,6 +28,9 @@ class RunMetadata(BaseModel):
     resume_name_pattern: str = "{company_name}-{full_name}"
     # The scraped (or stored) posting, saved to memory together with the result.
     job_posting_markdown: str = ""
+    # Date the run started (YYYYMMDD). Output patterns can contain {timestamp};
+    # a run continued on a later day must still write to the same files.
+    started_on: str = ""
 
 
 class TailorInputs(BaseModel):
