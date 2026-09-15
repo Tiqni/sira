@@ -1,7 +1,7 @@
 """Deterministic clean-up of skill groups (issue #20) — no model calls."""
 
 from sira.models.agents.output import CV, SkillGroup
-from sira.utils.skill_cleanup import clean_skill_groups, skill_key
+from sira.utils.skill_cleanup import clean_skill_groups, variant_key
 
 
 def _cv(*groups: tuple[str, list[str]]) -> CV:
@@ -28,7 +28,7 @@ def test_key_is_case_hyphen_and_whitespace_insensitive(subtests):
         ("Python", " python "),
     ):
         with subtests.test(a=a, b=b):
-            assert skill_key(a) == skill_key(b)
+            assert variant_key(a) == variant_key(b)
 
 
 def test_key_strips_version_suffixes(subtests):
@@ -39,14 +39,14 @@ def test_key_strips_version_suffixes(subtests):
         ("Java 17+", "Java"),
     ):
         with subtests.test(versioned=versioned):
-            assert skill_key(versioned) == skill_key(base)
+            assert variant_key(versioned) == variant_key(base)
 
 
 def test_key_keeps_product_numbers_and_inline_versions(subtests):
     # A bare number without a dot or "+" is part of the name, not a version.
     for a, b in (("Office 365", "Office"), ("GPT-5.5", "GPT"), ("HTTP/2", "HTTP")):
         with subtests.test(a=a, b=b):
-            assert skill_key(a) != skill_key(b)
+            assert variant_key(a) != variant_key(b)
 
 
 # --- clean_skill_groups ----------------------------------------------------
@@ -73,6 +73,25 @@ def test_acronym_variant_wins_when_the_base_skill_also_exists(subtests):
         assert _groups(clean_skill_groups(cv)) == [
             ("P", ["Retrieval-Augmented Generation (RAG)", "Vector search"])
         ]
+
+
+def test_two_different_acronyms_of_one_base_are_both_kept(subtests):
+    # Only the bare base merges into an acronym form; two acronym forms are two skills.
+    with subtests.test("base between the acronyms, across groups"):
+        cv = _cv(("A", ["X (ABC)"]), ("B", ["X", "X (DEF)"]))
+        assert _groups(clean_skill_groups(cv)) == [
+            ("A", ["X (ABC)"]),
+            ("B", ["X (DEF)"]),
+        ]
+    with subtests.test("base first"):
+        cv = _cv(("A", ["X", "X (ABC)", "X (DEF)"]))
+        assert _groups(clean_skill_groups(cv)) == [("A", ["X (ABC)", "X (DEF)"])]
+    with subtests.test("no base at all"):
+        cv = _cv(("A", ["X (ABC)", "X (DEF)"]))
+        assert _groups(clean_skill_groups(cv)) == [("A", ["X (ABC)", "X (DEF)"])]
+    with subtests.test("same acronym twice is one skill"):
+        cv = _cv(("A", ["X (ABC)", "x (abc)", "X"]))
+        assert _groups(clean_skill_groups(cv)) == [("A", ["X (ABC)"])]
 
 
 def test_case_and_hyphen_duplicates_keep_the_first_spelling():

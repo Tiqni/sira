@@ -150,7 +150,7 @@ class PydanticAIResumeParser(ResumeParserAdapter):
             )
 
     def _validate_output(self, output) -> CV:
-        """Validate agent output is a non-None ``CV``."""
+        """Validate agent output is a non-None ``CV`` and clean its skill groups."""
         if output is None:
             raise ValueError(
                 "Resume parser agent returned no output; expected a CV instance."
