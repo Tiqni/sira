@@ -2,6 +2,7 @@ from pathlib import Path
 
 import pytest
 from docx import Document
+from docx.oxml.ns import qn
 from docx.shared import Mm, RGBColor
 
 from sira.models.agents.output import Education, Project
@@ -29,6 +30,13 @@ def test_docx_styles_follow_the_spec(tmp_path: Path, spec: TemplateSpec):
     assert abs(section.left_margin - Mm(spec.margin_mm)) < Mm(0.1)
     assert abs(section.page_width - Mm(210)) < Mm(0.1)
     assert len(doc.tables) == 0  # ATS guard: single column, no tables
+
+    for name in ("Title", "Heading 2"):
+        rfonts = doc.styles[name].element.rPr.find(qn("w:rFonts"))
+        assert not any(
+            k.endswith("Theme") or k.endswith("theme") for k in rfonts.attrib
+        )
+        assert rfonts.get(qn("w:ascii")) == spec.docx_font
 
 
 def test_docx_document_order_and_text(tmp_path: Path):

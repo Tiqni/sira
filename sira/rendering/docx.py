@@ -44,6 +44,11 @@ def _set_font(style, name: str, size_pt: float, hex_color: str, *, bold=None) ->
         rpr.append(rfonts)
     for attr in ("w:ascii", "w:hAnsi", "w:eastAsia", "w:cs"):
         rfonts.set(qn(attr), name)
+    # A w:*Theme attribute overrides its named-font sibling per OOXML, and the
+    # default template's Title/Heading 2 styles carry these — drop them so our
+    # font actually wins instead of silently losing to the theme font.
+    for attr in ("w:asciiTheme", "w:hAnsiTheme", "w:eastAsiaTheme", "w:cstheme"):
+        rfonts.attrib.pop(qn(attr), None)
 
 
 def _remove_paragraph_borders(style) -> None:
@@ -86,6 +91,13 @@ def _apply_styles(doc, spec: TemplateSpec) -> None:
     _set_font(title, spec.docx_font, spec.name_pt, spec.accent_hex, bold=True)
     _remove_paragraph_borders(title)
     title.paragraph_format.space_after = Pt(2)
+    # The default template's Title style carries a leftover letter-spacing
+    # value that is not part of TemplateSpec — drop it so nothing but our
+    # explicit heading_style="caps" spacing ever applies.
+    rpr = title.element.rPr
+    spacing = rpr.find(qn("w:spacing")) if rpr is not None else None
+    if spacing is not None:
+        rpr.remove(spacing)
 
     heading = doc.styles["Heading 2"]
     _set_font(heading, spec.docx_font, spec.heading_pt, spec.heading_hex, bold=True)
