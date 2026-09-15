@@ -14,6 +14,7 @@ from dataclasses import dataclass
 from sira.tools.job_scraper_helpers import (
     clean_job_posting_markdown,
     detect_placeholder_content,
+    detect_prompt_injection,
     parse_html_with_html2text,
     parse_html_with_markitdown,
 )
@@ -52,6 +53,9 @@ class RawScrape:
     markdown_raw: str
     source_text: str
     extraction_strategy: str  # "markitdown" or "html2text"
+    # Advisory prompt-injection indicators from detect_prompt_injection().
+    # Category names only (never the matched text). Empty tuple = clean.
+    injection_indicators: tuple[str, ...] = ()
 
 
 def validate_job_url(url: str) -> None:
@@ -157,10 +161,20 @@ async def fetch_job_markdown(url: str) -> RawScrape:
         raise ScrapeError(f"Failed to fetch {url}: {e}") from e
     markdown, strategy = html_to_markdown(html)
     assert_quality(markdown)
+    # Advisory only: a suspicious page is still returned. main.py warns the user.
+    indicators = tuple(detect_prompt_injection(html, markdown))
     logger.info(
         "fetch_job_markdown_success",
-        extra={"url": url, "strategy": strategy, "length": len(markdown)},
+        extra={
+            "url": url,
+            "strategy": strategy,
+            "length": len(markdown),
+            "injection_indicators": list(indicators),
+        },
     )
     return RawScrape(
-        markdown_raw=markdown, source_text=html, extraction_strategy=strategy
+        markdown_raw=markdown,
+        source_text=html,
+        extraction_strategy=strategy,
+        injection_indicators=indicators,
     )

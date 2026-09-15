@@ -48,13 +48,12 @@ Stages 3-5 form the **Write → Review → Audit inner loop**: after the initial
 
 **Not part of the internal pipeline** — called by the CLI before launching the workflow.
 
-- **Responsibility**: Fetch job posting from a URL and extract clean Markdown content.
-- **Output**: `ScrapedJobPosting` (url, markdown, source_text, extraction_strategy)
-- **Tools**:
-  - `fetch_webpage(url, timeout)` — Playwright-based page fetch (headless Chromium)
-  - `validate_extraction(raw_html, extracted_markdown)` — Checks for placeholder content, minimum length (>200 chars), returns quality score
+- **Responsibility**: Strip site chrome (navigation, cookie banners, footers) from Markdown that was already extracted deterministically.
+- **Input / Output**: `str` → `str`. The fetch itself is not an agent step: `sira/tools/job_scraper.py::fetch_job_markdown()` drives Playwright (headless Chromium), converts HTML to Markdown, runs the quality gate (`assert_quality`), and returns a `RawScrape(markdown_raw, source_text, extraction_strategy, injection_indicators)`.
+- **Tools**: none (the former `fetch_webpage` / `validate_extraction` tools were replaced by the deterministic fetch).
+- **Prompt-injection scan**: `fetch_job_markdown()` also calls `detect_prompt_injection(raw_html, markdown)` (regex only, 10 languages) and stores category names in `RawScrape.injection_indicators`; `main.py` logs and prints an advisory warning and continues. An optional local classifier (`sira[guard]` extra, `sira/tools/injection_guard.py`, Meta Llama Prompt Guard 2) can add a `classifier_flagged` indicator after a one-time user consent. Both the scraper and analyst prompts state that page text is data, never instructions.
 - **Retries**: 3
-- **Quality Gate**: No (uses `validate_extraction` tool instead)
+- **Quality Gate**: No (the deterministic `assert_quality` runs before the agent)
 
 ### 1. Resume Parser (`resume_parser_agent`)
 
@@ -159,7 +158,7 @@ All models are defined in `sira/models/agents/output.py` using Pydantic v2.
 
 | Model               | Purpose                                                                      |
 | ------------------- | ---------------------------------------------------------------------------- |
-| `ScrapedJobPosting` | Scraped job content: `url`, `markdown`, `source_text`, `extraction_strategy` |
+| `ScrapedJobPosting` | Legacy scraped-job model; the live path uses the `RawScrape` dataclass in `sira/tools/job_scraper.py` |
 
 ### Workflow Result
 
@@ -235,7 +234,7 @@ All models are defined in `sira/models/agents/output.py` using Pydantic v2.
 - `reviewer_agent` — Output drives refinement loop; quality is implicitly validated by the auditor later.
 - `report_agent` — Produces narrative; score, verdict and gaps are computed in Python.
 - `skill_matcher_agent` — Shape-validated by `_validate_skill_matches`; a wrong answer degrades to literal matching.
-- `job_scraper_agent` — Uses `validate_extraction` tool instead of quality gate.
+- `job_scraper_agent` — Ungated; the deterministic `assert_quality` in `sira/tools/job_scraper.py` runs before it.
 
 ### Scoring Criteria by Role
 
@@ -274,18 +273,22 @@ sira/memory/
 
 ```
 sira/tools/
-├── playwright.py         # read_job_content_file — agent tool for file-based job content
-└── job_scraper_helpers.py # parse_html_with_markitdown, parse_html_with_html2text,
-                           # detect_placeholder_content, clean_job_posting_markdown
+├── job_scraper.py         # fetch_job_markdown, RawScrape, assert_quality (deterministic, no LLM)
+├── job_scraper_helpers.py # parse_html_with_markitdown, parse_html_with_html2text,
+│                          # detect_placeholder_content, detect_prompt_injection,
+│                          # clean_job_posting_markdown
+└── injection_guard.py     # optional local classifier (sira[guard] extra) + consent flow
 ```
 
 ### Job Scraper Architecture
 
-- `fetch_webpage(url, timeout)`: Playwright (headless Chromium) → raw HTML
+- `fetch_job_markdown(url)`: Playwright (headless Chromium) → raw HTML → Markdown → `assert_quality` → `detect_prompt_injection` → `RawScrape`
 - `parse_html_with_markitdown(html)`: Primary parser via `markitdown` library
 - `parse_html_with_html2text(html)`: Fallback parser via `html2text` library
 - `detect_placeholder_content(text)`: Validates extracted content isn't error/placeholder (checks for `<script` tags, "click here", "error loading", "404", minimum 100 chars)
+- `detect_prompt_injection(raw_html, extracted_text)`: Regex scan for instruction overrides, AI-addressing, role/output manipulation, exfiltration requests, invisible Unicode, and phrases present in the HTML but not in the visible text (`hidden_content`). Advisory; returns category names only.
 - `clean_job_posting_markdown(markdown)`: Normalizes whitespace, collapses blank lines
+- `injection_guard.classify(markdown)`: Optional second layer — a local discriminative classifier (not a generative LLM), opt-in via the `guard` extra plus a remembered consent; any failure degrades to regex-only.
 
 ---
 
@@ -385,6 +388,7 @@ Both commands are synchronous wrappers (`def`) that call `asyncio.run()` on asyn
 | Data validation   | Pydantic v2     | (via pydantic-ai)  |
 | CLI framework     | Typer           | ≥ 0.25.1           |
 | Web scraping      | Playwright      | ≥ 1.56.0           |
+| Injection guard   | transformers + torch | ≥ 4.45 / ≥ 2.2 (opt-in `guard` extra) |
 | HTML→Markdown     | html2text       | ≥ 2025.4.15        |
 | DOCX/PDF→Markdown | markitdown      | ≥ 0.1.0            |
 | Markdown→PDF      | markdown-pdf    | ≥ 1.10             |

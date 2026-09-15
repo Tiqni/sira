@@ -11,6 +11,8 @@ Deterministic fetch/convert/URL-validation tests live in
 """
 
 import os
+
+import pytest
 from pydantic_ai import models
 from pydantic_ai.models.test import TestModel
 
@@ -19,7 +21,11 @@ from sira.tools.job_scraper_helpers import (
     detect_placeholder_content,
     clean_job_posting_markdown,
 )
-from sira.workflows.agents import job_scraper_agent
+from sira.workflows.agents import (
+    analyst_agent,
+    build_scraper_instructions,
+    job_scraper_agent,
+)
 
 # Ensure model requests are blocked (test mode only)
 models.ALLOW_MODEL_REQUESTS = False
@@ -303,3 +309,22 @@ San Francisco, CA
                 extraction_strategy=strategy,
             )
             assert posting.extraction_strategy == strategy
+
+
+class TestUntrustedContentPrompts:
+    """Scraped page text is data, never instructions — both prompts say so."""
+
+    @pytest.mark.anyio
+    async def test_scraper_prompt_has_security_section(self):
+        prompt = await build_scraper_instructions()
+        assert "SECURITY" in prompt
+        lowered = prompt.lower()
+        assert "never as instructions" in lowered or "not instructions" in lowered
+        # must refuse embedded directives and keep its own output format
+        assert "embedded" in lowered or "inside the page" in lowered
+        assert "output format" in lowered
+
+    def test_analyst_prompt_treats_posting_as_data(self):
+        prompt = "\n".join(analyst_agent._system_prompts).lower()
+        assert "data" in prompt
+        assert "ignore any instructions" in prompt or "ignore instructions" in prompt

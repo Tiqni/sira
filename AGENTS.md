@@ -109,7 +109,7 @@ Single package: `sira/`
 5. **Auditor** — checks for hallucinations and AI clichés; triggers write-retry loop on failure.
 6. **Report Generator** — compiles `FinalReport` with CVDiff, gap analysis, and narrative.
 
-**Job scraping runs BEFORE the pipeline** — the CLI uses `job_scraper_agent` (Playwright + LLM extraction) to scrape the job URL and produce markdown. The scraped content is then passed into the pipeline as `job_content`.
+**Job scraping runs BEFORE the pipeline** — the CLI calls the deterministic `fetch_job_markdown()` (`sira/tools/job_scraper.py`: Playwright → Markdown → quality gate → prompt-injection scan), then `job_scraper_agent` strips site chrome from that Markdown (`str` → `str`). The result is passed into the pipeline as `job_content`. Injection indicators are advisory: a warning is printed and the run continues.
 
 The **Write → Review → Audit** inner loop: after the initial write, the reviewer assesses quality and the writer refines (up to 3 review iterations). The auditor then checks the final draft. If audit fails, the entire loop retries from a fresh write (up to 3 write attempts, each with up to 3 review iterations).
 
@@ -117,7 +117,7 @@ The **Write → Review → Audit** inner loop: after the initial write, the revi
 
 | Agent                       | Output Type          | Retries | Has Quality Gate                                     |
 | --------------------------- | --------------------- | ------- | ------------------------------------------------------ |
-| `job_scraper_agent`         | `ScrapedJobPosting`  | 3       | No (has `validate_extraction` tool)                  |
+| `job_scraper_agent`         | `str`                | 3       | No (deterministic `assert_quality` runs before it)   |
 | `scraper_agent`             | `JobAnalysis`        | 5       | No (legacy; `job_scraper_agent` used by CLI)         |
 | `resume_parser_agent`       | `CV`                 | 5       | Yes                                                  |
 | `analyst_agent`             | `JobAnalysis`        | 5       | Yes                                                  |
@@ -137,7 +137,7 @@ The **Write → Review → Audit** inner loop: after the initial write, the revi
 - **LLM**: OpenAI GPT (configurable via `--model`; default `openai:gpt-5-mini`)
 - **Models**: Pydantic v2 for structured outputs
 - **CLI**: Typer with two subcommands (`tailor`, `re-tailor`)
-- **Web Scraping**: Playwright (headless Chromium), LLM-directed extraction via `job_scraper_agent`
+- **Web Scraping**: Playwright (headless Chromium) in `fetch_job_markdown()`; `job_scraper_agent` only cleans the Markdown. Optional `guard` extra (transformers + torch) adds a local prompt-injection classifier.
 - **HTML→Markdown**: `html2text` and `markitdown` (multi-strategy fallback in `job_scraper_helpers.py`)
 - **Resume Conversion**: `markitdown` via `InputConverterRegistry` (DOCX/PDF → Markdown)
 - **Memory**: SQLite (`files/resume_memory.sqlite3`) with `ResumeMemoryService`
