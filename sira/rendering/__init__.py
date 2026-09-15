@@ -78,6 +78,9 @@ def render_resume(
     except RenderError as exc:
         errors["pdf"] = exc
         pdf_path = None
+    except Exception as exc:  # noqa: BLE001 — a template bug must never lose the tailoring result
+        errors["pdf"] = RenderError(f"Failed to write PDF: {exc}")
+        pdf_path = None
 
     docx_path: Path | None = output_dir / f"{base_name}.docx"
     try:

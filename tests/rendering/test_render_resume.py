@@ -44,3 +44,19 @@ def test_docx_failure_is_collected_and_other_files_still_written(tmp_path, monke
         and rendered.pdf.exists()
     )
     assert rendered.written == [rendered.markdown, rendered.pdf]
+
+
+def test_html_rendering_failure_is_collected_as_pdf_error(tmp_path, monkeypatch):
+    def boom(cv, spec):
+        raise RuntimeError("template broke")
+
+    monkeypatch.setattr("sira.rendering.render_html", boom)
+    rendered = render_resume(make_cv(), tmp_path, "r")
+    assert rendered.pdf is None
+    assert "template broke" in str(rendered.errors["pdf"])
+    assert isinstance(rendered.errors["pdf"], RenderError)
+    assert (
+        rendered.markdown.exists()
+        and rendered.docx is not None
+        and rendered.docx.exists()
+    )
