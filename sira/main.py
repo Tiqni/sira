@@ -6,6 +6,7 @@ import hashlib
 import logging
 import os
 import re
+import subprocess
 import sys
 import uuid
 from datetime import date, datetime
@@ -1331,6 +1332,28 @@ def runs(
     """List recent tailoring runs and their status."""
     with durable_runtime():
         asyncio.run(_runs_impl(limit))
+
+
+@app.command()
+def setup() -> None:
+    """Install the Chromium browser that the job scraper drives.
+
+    Run once after installing Sira. The browser is a separate download from
+    the Python package and must match Sira's own `playwright` version, so it
+    is installed through the interpreter Sira runs under — the `playwright`
+    executable is not on PATH after `uv tool install` or `pipx install`.
+    """
+    console.print("⬇️  Installing Chromium for Playwright…")
+    completed = subprocess.run(
+        [sys.executable, "-m", "playwright", "install", "chromium"], check=False
+    )
+    if completed.returncode != 0:
+        console.print(
+            "[red]❌ Browser install failed. Re-run `sira setup`, or run "
+            "`playwright install chromium` in Sira's environment.[/red]"
+        )
+        raise typer.Exit(code=1)
+    console.print("✅ Chromium installed. You can now run `sira tailor`.")
 
 
 def run():

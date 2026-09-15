@@ -64,19 +64,28 @@ rather than papering over them.
 
 ## Install
 
+From [PyPI](https://pypi.org/project/sira/), as a standalone tool:
+
+```bash
+uv tool install sira        # or: pipx install sira
+sira setup                  # downloads the Chromium browser the scraper drives
+export OPENAI_API_KEY=sk-…
+sira tailor https://example.com/jobs/12345 ~/resume.md
+```
+
+Or from source, to work on Sira itself:
+
 ```bash
 git clone https://github.com/Tiqni/sira
 cd sira
 uv sync
-uv run playwright install chromium
+uv run sira setup
 export OPENAI_API_KEY=sk-…
-```
-
-Then run it:
-
-```bash
 uv run sira tailor https://example.com/jobs/12345 ~/resume.md
 ```
+
+The rest of this site writes commands in the from-source form, `uv run sira …`. With a
+PyPI install, drop the `uv run` prefix.
 
 Full walkthrough: [Getting started](getting-started.md).
 
@@ -100,7 +109,7 @@ Full walkthrough: [Getting started](getting-started.md).
 
 - **Python 3.13+**
 - **[uv](https://github.com/astral-sh/uv)** — the package manager and runner this project uses
-- **A Chromium browser for Playwright** — installed once with `uv run playwright install chromium`
+- **A Chromium browser for Playwright** — installed once with `sira setup`
 - **An API key** for whichever LLM provider you pick (OpenAI by default)
 
 ## Licence

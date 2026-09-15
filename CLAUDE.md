@@ -29,6 +29,7 @@ uv run sira tailor <JOB_URL> <RESUME_PATH> [--model … --fast -v -d]
 uv run sira re-tailor <JOB_ID> "<RECOMMENDATIONS>"
 uv run sira resume <RUN_ID>              # continue a killed/crashed/failed run from its last checkpoint
 uv run sira runs [--limit N]             # list recent runs and their status
+uv run sira setup                        # download the Chromium browser Playwright drives (once)
 graphify update .                         # refresh the knowledge graph after code changes (AST-only, no API cost)
 ```
 
@@ -58,6 +59,10 @@ The flow spans several files; the order is **not** all inside the workflow:
 
 ### Reporting
 `run_agent` emits lifecycle/token events to the active `ProgressReporter` (installed via `use_reporter`): a Rich `LiveDashboard` by default, or `VerboseReporter` with `-v`. Reporter calls are best-effort and must never abort a run (`_safe_report`).
+
+## Releasing
+
+Merging to `main` runs `.github/workflows/release.yml`: commitizen bumps the version and opens a release PR; merging that PR tags, creates the GitHub Release, then `build` (wheel + sdist, smoke-tested in isolation) and `publish` upload to PyPI through Trusted Publishing (OIDC — no API token; the `pypi` GitHub environment and the publisher registered on pypi.org must both name `release.yml`). The sdist only carries `sira/`, `tests/`, and `CHANGELOG.md` (`[tool.hatch.build.targets.sdist]`).
 
 ## Conventions & gotchas
 

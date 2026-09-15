@@ -1,6 +1,6 @@
 # 📄 Sira
 
-![cover](./cover.png)
+![cover](https://raw.githubusercontent.com/Tiqni/sira/main/cover.png)
 
 Sira is a multi-agent AI system that analyzes job postings and tailors your resume to match specific job requirements. It ensures authenticity, avoids AI clichés, and optimizes for Applicant Tracking Systems (ATS).
 
@@ -49,11 +49,33 @@ On a cold cache these two stages run **concurrently**.
 ## 📋 Prerequisites
 
 - **Python 3.13+**
-- **[uv](https://github.com/astral-sh/uv)** (Fast Python package installer and resolver)
-- **A Chromium browser for Playwright** — installed once with `uv run playwright install chromium`
+- **A Chromium browser for Playwright** — installed once with `sira setup`
 - **LLM Provider API Key** — OpenAI by default; many providers supported (see [LLM Providers](#-llm-providers))
+- **[uv](https://github.com/astral-sh/uv)** (Fast Python package installer and resolver) — only for the from-source install below
 
 ## 📦 Installation
+
+### From PyPI
+
+Sira is on [PyPI](https://pypi.org/project/sira/). Install it as a standalone tool with
+[uv](https://docs.astral.sh/uv/guides/tools/) or [pipx](https://pipx.pypa.io/) — each
+gives Sira its own isolated environment and puts the `sira` command on your `PATH`:
+
+```bash
+uv tool install sira        # or: pipx install sira, or: pip install sira
+sira setup                  # downloads the Chromium browser the job scraper drives
+export OPENAI_API_KEY=your_api_key_here
+sira tailor <JOB_URL> <RESUME_PATH>
+```
+
+`sira setup` runs `playwright install chromium` inside Sira's own environment, so the
+browser always matches the Playwright version Sira was installed with. Extras work the
+same way: `uv tool install "sira[guard]"`.
+
+The rest of this README writes commands as `uv run sira …`, which is the from-source
+form below. With a PyPI install, drop the `uv run` prefix.
+
+### From source (development)
 
 1.  **Clone the repository**:
 
@@ -74,7 +96,7 @@ On a cold cache these two stages run **concurrently**.
     download from the Python package:
 
     ```bash
-    uv run playwright install chromium
+    uv run sira setup
     ```
 
 4.  **Set up Environment Variables**:
@@ -388,6 +410,7 @@ For a second opinion from a small model, install the `guard` extra. It runs [Met
 
 ```bash
 uv sync --extra guard        # torch + transformers, ~2 GB
+# or, installed from PyPI:  uv tool install "sira[guard]"
 ```
 
 - The first `tailor` run asks once whether the model may be downloaded (~90 MB) and executed on your machine, and remembers the answer in `~/.config/sira/guard_consent.json`. Pre-answer with `SIRA_GUARD_CONSENT=yes|no` for scripts and CI.

@@ -103,6 +103,20 @@ List recent runs with their status, job, start time, and duration.
 uv run sira runs [--limit N]
 ```
 
+## `setup`
+
+Download the Chromium browser the job scraper drives. Run it once after installing Sira
+and again after upgrading Playwright.
+
+```bash
+uv run sira setup
+```
+
+It runs `playwright install chromium` with the interpreter Sira itself runs under, so the
+browser build matches the installed Playwright version — and it works after
+`uv tool install sira` or `pipx install sira`, where the `playwright` executable is not on
+your `PATH`. Exits with code 1 if the download fails.
+
 ---
 
 ## Options

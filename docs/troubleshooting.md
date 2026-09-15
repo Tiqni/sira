@@ -13,7 +13,7 @@ The Playwright Python package is installed, but the actual browser binary is a s
 download. Install it once:
 
 ```bash
-uv run playwright install chromium
+uv run sira setup        # or just `sira setup` when installed from PyPI
 ```
 
 On Linux you may also need the shared libraries the browser links against:
