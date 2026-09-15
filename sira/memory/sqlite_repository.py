@@ -2,7 +2,7 @@
 
 Uses stdlib ``sqlite3`` only — no ORM or third-party DB layer.
 
-Runtime database location: ``memory/resume_memory.sqlite3``
+Runtime database location: ``sira.paths.memory_db_path()``
 Tests should supply ``:memory:`` or a temporary path.
 
 Design choices
@@ -42,6 +42,7 @@ from sira.memory.models import (
     TailoredResumeRecord,
 )
 from sira.memory.repository import ResumeMemoryRepository
+from sira.paths import memory_db_path
 
 # ---------------------------------------------------------------------------
 # SQL DDL
@@ -161,11 +162,12 @@ class SQLiteResumeMemoryRepository(ResumeMemoryRepository):
     ----------
     db_path:
         File-system path for the SQLite database, or ``":memory:"`` for an
-        in-process ephemeral database (used by tests).
+        in-process ephemeral database (used by tests). ``None`` (the default)
+        opens ``sira.paths.memory_db_path()`` in the user data directory.
     """
 
-    def __init__(self, db_path: str | Path = "memory/resume_memory.sqlite3") -> None:
-        self._db_path = str(db_path)
+    def __init__(self, db_path: str | Path | None = None) -> None:
+        self._db_path = str(db_path if db_path is not None else memory_db_path())
         # SQLite will not create parent directories; ensure they exist.
         if self._db_path != ":memory:":
             os.makedirs(os.path.dirname(self._db_path) or ".", exist_ok=True)

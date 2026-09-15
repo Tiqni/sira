@@ -457,3 +457,38 @@ def test_print_report_to_console_escapes_rich_markup_in_skill_lines(capsys):
     out = capsys.readouterr().out
     assert "[Scripting]" in out
     assert "[/bad] tag" in out
+
+
+def test_open_memory_service_moves_a_legacy_database_and_says_so(
+    tmp_path, monkeypatch, capsys
+):
+    """A ``./memory`` database from before the data dir is moved on first open."""
+    from sira import paths
+    from sira.main import _open_memory_service
+    from sira.memory.sqlite_repository import SQLiteResumeMemoryRepository
+
+    monkeypatch.chdir(tmp_path)
+    legacy = tmp_path / "memory" / "resume_memory.sqlite3"
+    SQLiteResumeMemoryRepository(db_path=legacy).close()
+
+    repo, service = _open_memory_service()
+
+    assert not legacy.exists()
+    assert paths.memory_db_path().is_file()
+    assert service._repo is repo
+    # Rich wraps long lines at the terminal width; compare without line breaks.
+    printed = capsys.readouterr().out.replace("\n", "")
+    assert "Moved the resume memory" in printed
+    assert str(paths.memory_db_path()) in printed
+
+
+def test_open_memory_service_is_quiet_without_a_legacy_database(
+    tmp_path, monkeypatch, capsys
+):
+    from sira.main import _open_memory_service
+
+    monkeypatch.chdir(tmp_path)
+
+    _open_memory_service()
+
+    assert capsys.readouterr().out == ""

@@ -35,6 +35,22 @@ def repo() -> SQLiteResumeMemoryRepository:
 
 
 # ---------------------------------------------------------------------------
+# Default location
+# ---------------------------------------------------------------------------
+
+
+def test_default_db_path_is_the_data_dir_database(tmp_path, monkeypatch):
+    """With no argument the repository opens ``paths.memory_db_path()``."""
+    from sira import paths
+
+    monkeypatch.setenv(paths.DATA_DIR_ENV, str(tmp_path / "data"))
+
+    SQLiteResumeMemoryRepository()
+
+    assert (tmp_path / "data" / "resume_memory.sqlite3").is_file()
+
+
+# ---------------------------------------------------------------------------
 # Schema initialisation
 # ---------------------------------------------------------------------------
 

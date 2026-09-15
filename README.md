@@ -214,9 +214,9 @@ uv run sira re-tailor \
 
 ### `resume` / `runs` — Continue an interrupted run
 
-Every run is **durable**: each model request is checkpointed by [DBOS](https://docs.dbos.dev) in a local SQLite file (`memory/dbos.sqlite3`, override with `SIRA_DBOS_DATABASE_URL`). `sira tailor` prints a **Run ID** at the start and again at the end. It is not the **Job ID** printed with it — the Job ID names the memory record used by `re-tailor`; the Run ID names the durable run used by `resume`. If the process is killed, crashes, or a stage fails, continue from the last completed model request — earlier agents are replayed from their checkpoints, not called again:
+Every run is **durable**: each model request is checkpointed by [DBOS](https://docs.dbos.dev) in a local SQLite file (`dbos.sqlite3` in the [data directory](#-resume-memory-behavior), override with `SIRA_DBOS_DATABASE_URL`). `sira tailor` prints a **Run ID** at the start and again at the end. It is not the **Job ID** printed with it — the Job ID names the memory record used by `re-tailor`; the Run ID names the durable run used by `resume`. If the process is killed, crashes, or a stage fails, continue from the last completed model request — earlier agents are replayed from their checkpoints, not called again:
 
-> **Privacy:** `memory/dbos.sqlite3` stores each run's inputs and checkpoints — your full resume text, the job posting, every model response (including the tailored CV) and your answers at interactive checkpoints — pickled, with your user's default file permissions. It never leaves your machine. Delete the file to purge it, or point `SIRA_DBOS_DATABASE_URL` at another location. Rows are readable only by the same Sira and `pydantic-ai` versions that wrote them.
+> **Privacy:** `dbos.sqlite3` stores each run's inputs and checkpoints — your full resume text, the job posting, every model response (including the tailored CV) and your answers at interactive checkpoints — pickled, with your user's default file permissions. It never leaves your machine. Delete the file to purge it, or point `SIRA_DBOS_DATABASE_URL` at another location. Rows are readable only by the same Sira and `pydantic-ai` versions that wrote them.
 
 ```bash
 uv run sira resume <RUN_ID>
@@ -292,7 +292,7 @@ Use `--resume-name-pattern` to customize the base filename (default: `{company_n
 - **Content-hash caching**: If your resume file hasn't changed since the last run, the pre-parsed `CV` is reused — no LLM parsing call is made, saving time and cost.
 - Every job submission starts from the original resume, never from a previous tailored resume.
 - Each successful tailoring run stores the tailored resume and audit result linked back to the original source resume.
-- The local memory database lives at `memory/resume_memory.sqlite3`, relative to the directory you run `sira` from.
+- Sira keeps its runtime state in a per-user data directory (`~/Library/Application Support/sira` on macOS, `~/.local/share/sira` on Linux, `%LOCALAPPDATA%\sira` on Windows; set `SIRA_DATA_DIR` to change it). The memory database is `resume_memory.sqlite3` in that directory, so `tailor` and `re-tailor` share it from any working directory. A `memory/resume_memory.sqlite3` left by a release before 1.5 is moved there the first time Sira runs.
 - When running `re-tailor`, if the original resume file no longer exists on disk at its recorded path, you must provide `--resume-path` to restore the link.
 
 ## 📊 Self-Review Report
@@ -347,6 +347,7 @@ sira/
 │   │   │   └── deps.py        # Agent dependency types
 │   │   └── workflow.py        # ResumeTailorResult
 │   ├── memory/                # SQLite-backed resume memory
+│   ├── paths.py               # Per-user data directory (SIRA_DATA_DIR)
 │   │   ├── models.py          # Memory domain models
 │   │   ├── parser.py          # Resume parser adapter
 │   │   ├── repository.py      # Abstract repository interface
@@ -369,7 +370,6 @@ sira/
 │   └── factories.py           # Test data factories
 ├── docs/                      # Additional documentation
 ├── output/                    # Default output directory for generated files
-├── files/                     # Default location for resume_memory.sqlite3
 ├── Makefile                   # Command shortcuts
 ├── pyproject.toml             # Project configuration and dependencies
 └── README.md                  # This file

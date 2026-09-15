@@ -98,9 +98,11 @@ uv run sira re-tailor <JOB_ID> "…" --resume-path ~/Documents/resume.pdf
 ## `❌ Job not found: <id>`
 
 The job ID is the UUID printed at the end of a successful `tailor` run, and it is
-looked up in `memory/resume_memory.sqlite3` **relative to your current directory**.
-Running `re-tailor` from a different directory looks in a different (empty) database.
-Run it from the same place you ran `tailor`.
+looked up in the [memory database](memory.md#where-it-lives). Since 1.5 that database
+is shared across working directories; before 1.5 it was `memory/resume_memory.sqlite3`
+relative to where you ran `tailor`, and Sira moves such a file into the data directory
+the first time it runs from that place. If the ID came from a run in another directory
+on an older release, run `sira` once from that directory so its database is moved.
 
 ## `❌ No job posting content stored for this job`
 

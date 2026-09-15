@@ -83,7 +83,7 @@ Avoid these terms in generated content:
 - Tools: `tools/job_scraper.py` (deterministic fetch, `RawScrape`), `tools/job_scraper_helpers.py` (HTML parsing, placeholder + prompt-injection detection), `tools/injection_guard.py` (optional local classifier, `guard` extra)
 - Memory: `memory/service.py` (`ResumeMemoryService`), `memory/sqlite_repository.py`
 - Utils: `utils/cv_diff.py` (diff/gap/score), `utils/skill_matching.py` (CV text + literal pre-pass), `utils/resume_converter.py` (DOCX/PDF→MD)
-- Memory DB: `files/resume_memory.sqlite3`
+- Memory DB: `resume_memory.sqlite3` in the per-user data directory (`sira/paths.py`)
 - Output: `output/<company>-<job>/`
 
 ### Testing

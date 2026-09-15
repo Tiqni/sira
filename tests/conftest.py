@@ -11,6 +11,14 @@ os.environ.setdefault("OPENAI_API_KEY", "sk-test-dummy")
 models.ALLOW_MODEL_REQUESTS = False
 
 
+@pytest.fixture(autouse=True)
+def _isolated_data_dir(tmp_path, monkeypatch):
+    """Keep every test's runtime state out of the developer's real data dir."""
+    from sira.paths import DATA_DIR_ENV
+
+    monkeypatch.setenv(DATA_DIR_ENV, str(tmp_path / "sira-data"))
+
+
 @pytest.fixture(params=["asyncio"])
 def anyio_backend() -> str:
     """Restrict anyio tests to asyncio backend (trio is not installed)."""
