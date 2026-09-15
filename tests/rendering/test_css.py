@@ -34,3 +34,10 @@ def test_css_names_every_semantic_class():
         ".skill-group",
     ):
         assert selector in css
+
+
+def test_links_never_wrap_inside_the_url():
+    assert (
+        "a { color: #1F4E79; text-decoration: none; white-space: nowrap; }"
+        in build_css(MODERN)
+    )
