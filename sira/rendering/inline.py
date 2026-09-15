@@ -51,7 +51,19 @@ def inline_markdown_to_runs(text: str) -> list[Run]:
         if match.start() > pos:
             runs.append(Run(text[pos : match.start()]))
         if match.group("ltext") is not None:
-            runs.append(Run(match.group("ltext"), href=_safe_href(match.group("lurl"))))
+            # Link text may carry emphasis ("[**Sira**](url)"); every piece of
+            # it gets the href. The text cannot contain "]", so no nested links.
+            href = _safe_href(match.group("lurl"))
+            runs.extend(
+                Run(
+                    inner.text,
+                    bold=inner.bold,
+                    italic=inner.italic,
+                    code=inner.code,
+                    href=href,
+                )
+                for inner in inline_markdown_to_runs(match.group("ltext"))
+            )
         elif match.group("url") is not None:
             url = match.group("url")
             runs.append(Run(url, href=_safe_href(url)))
@@ -70,7 +82,16 @@ def inline_markdown_to_runs(text: str) -> list[Run]:
 def inline_markdown_to_html(text: str) -> Markup:
     """Convert ``text`` to escaped HTML (used by the Jinja template as ``| inline``)."""
     parts: list[str] = []
+    open_href = ""  # href of the <a> currently open, "" when none
     for run in inline_markdown_to_runs(text):
+        if run.href != open_href:
+            # Consecutive runs of one link share a single <a> so the anchor
+            # wraps "<b>CKAD:</b> Certified" as one link, not three.
+            if open_href:
+                parts.append("</a>")
+            if run.href:
+                parts.append(f'<a href="{html.escape(run.href, quote=True)}">')
+            open_href = run.href
         piece = html.escape(run.text, quote=True)
         if run.code:
             piece = f"<code>{piece}</code>"
@@ -78,7 +99,7 @@ def inline_markdown_to_html(text: str) -> Markup:
             piece = f"<b>{piece}</b>"
         if run.italic:
             piece = f"<i>{piece}</i>"
-        if run.href:
-            piece = f'<a href="{html.escape(run.href, quote=True)}">{piece}</a>'
         parts.append(piece)
+    if open_href:
+        parts.append("</a>")
     return Markup("".join(parts))
