@@ -96,7 +96,8 @@ Single package: `sira/`
 | `sira/models/`    | Pydantic data models (agents output types, workflow result)            |
 | `sira/memory/`    | SQLite-backed memory (parser, repository, service)                     |
 | `sira/tools/`     | Playwright scraping, HTML→Markdown parsing, placeholder detection      |
-| `sira/utils/`     | Markdown writer, resume conversion, CV diff, PDF converter, validation |
+| `sira/rendering/` | Styled resume output: TemplateSpec styles, HTML/CSS → PDF, DOCX, Markdown |
+| `sira/utils/`     | Report markdown writer, resume input conversion, CV diff, skill matching, validation |
 | `output/`                      | Default output directory for generated files                           |
 
 ### Multi-Agent Pipeline (6 Stages)

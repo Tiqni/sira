@@ -31,6 +31,7 @@ sira/                            # the Python package
 │   └── job_scraper_helpers.py   # HTML→Markdown, placeholder detection, cleanup
 ├── rendering/
 │   ├── __init__.py       # render_resume(cv, dir, base_name, style) → .md/.pdf/.docx
+│   ├── errors.py         # RenderError
 │   ├── templates.py      # TemplateSpec: modern, classic, compact
 │   ├── inline.py         # inline markdown subset (links, bold, italic, code)
 │   ├── html.py + resume.html.j2   # CV → HTML (Jinja2)
