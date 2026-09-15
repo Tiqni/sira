@@ -1,0 +1,75 @@
+from pathlib import Path
+
+import pytest
+from docx import Document
+from docx.shared import Mm, RGBColor
+
+from sira.models.agents.output import Education, Project
+from sira.rendering.docx import write_docx
+from sira.rendering.errors import RenderError
+from sira.rendering.templates import CLASSIC, COMPACT, MODERN, TemplateSpec
+from tests.factories import make_cv
+
+
+def _rgb(hex_color: str) -> RGBColor:
+    return RGBColor.from_string(hex_color.lstrip("#"))
+
+
+@pytest.mark.parametrize("spec", [MODERN, CLASSIC, COMPACT])
+def test_docx_styles_follow_the_spec(tmp_path: Path, spec: TemplateSpec):
+    out = tmp_path / "r.docx"
+    write_docx(make_cv(), spec, out)
+    doc = Document(str(out))
+
+    assert doc.styles["Normal"].font.name == spec.docx_font
+    assert doc.styles["Heading 2"].font.color.rgb == _rgb(spec.heading_hex)
+    assert doc.styles["Title"].font.color.rgb == _rgb(spec.accent_hex)
+    assert bool(doc.styles["Heading 2"].font.all_caps) == (spec.heading_style == "caps")
+    section = doc.sections[0]
+    assert abs(section.left_margin - Mm(spec.margin_mm)) < Mm(0.1)
+    assert abs(section.page_width - Mm(210)) < Mm(0.1)
+    assert len(doc.tables) == 0  # ATS guard: single column, no tables
+
+
+def test_docx_document_order_and_text(tmp_path: Path):
+    cv = make_cv().model_copy(
+        update={
+            "projects": [
+                Project(name="Tool", description="A **CLI**", link="https://t.io")
+            ],
+            "education": [
+                Education(
+                    degree="BSc", institution="TU", dates="2016", details="Honours"
+                )
+            ],
+        }
+    )
+    out = tmp_path / "r.docx"
+    write_docx(cv, MODERN, out)
+    doc = Document(str(out))
+
+    paragraphs = [(p.style.name, p.text) for p in doc.paragraphs]
+    assert paragraphs[0] == ("Title", "Jane Doe")
+    assert paragraphs[1] == ("Contact", "jane@example.com")
+    headings = [text for style, text in paragraphs if style == "Heading 2"]
+    assert headings == ["Summary", "Skills", "Experience", "Projects", "Education"]
+    assert ("Normal", "Languages: Python, SQL") in paragraphs
+    assert ("Normal", "Engineer — Acme · 2022-2026") in paragraphs
+    assert ("List Bullet", "Built services") in paragraphs
+    assert ("Normal", "Tool — A CLI (https://t.io)") in paragraphs
+    assert ("Normal", "BSc — TU · 2016") in paragraphs
+    assert ("Normal", "Honours") in paragraphs
+
+    bold_runs = [r.text for p in doc.paragraphs for r in p.runs if r.bold]
+    assert "CLI" in bold_runs and "Engineer" in bold_runs and "Languages: " in bold_runs
+    hyperlinks = [
+        r.target_ref for r in doc.part.rels.values() if "hyperlink" in r.reltype
+    ]
+    assert hyperlinks == ["https://t.io"]
+
+
+def test_docx_failure_raises_render_error(tmp_path: Path):
+    blocker = tmp_path / "file"
+    blocker.write_text("not a directory")
+    with pytest.raises(RenderError, match="DOCX"):
+        write_docx(make_cv(), MODERN, blocker / "r.docx")
