@@ -42,7 +42,7 @@ from sira.memory.models import (
     TailoredResumeRecord,
 )
 from sira.memory.repository import ResumeMemoryRepository
-from sira.paths import memory_db_path
+from sira.paths import memory_db_path, migrate_legacy_memory_db
 
 # ---------------------------------------------------------------------------
 # SQL DDL
@@ -163,11 +163,18 @@ class SQLiteResumeMemoryRepository(ResumeMemoryRepository):
     db_path:
         File-system path for the SQLite database, or ``":memory:"`` for an
         in-process ephemeral database (used by tests). ``None`` (the default)
-        opens ``sira.paths.memory_db_path()`` in the user data directory.
+        opens ``sira.paths.memory_db_path()`` in the user data directory,
+        first moving a database left in ``./memory`` by a release before 1.5.
     """
 
     def __init__(self, db_path: str | Path | None = None) -> None:
-        self._db_path = str(db_path if db_path is not None else memory_db_path())
+        if db_path is None:
+            # Must run before the file at the default path is created: the
+            # migration never overwrites an existing target, so opening first
+            # would leave the legacy database behind for good.
+            migrate_legacy_memory_db()
+            db_path = memory_db_path()
+        self._db_path = str(db_path)
         # SQLite will not create parent directories; ensure they exist.
         if self._db_path != ":memory:":
             os.makedirs(os.path.dirname(self._db_path) or ".", exist_ok=True)

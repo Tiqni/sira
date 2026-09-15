@@ -363,13 +363,13 @@ sira/
 │   ├── workflows/             # Workflow orchestration and agent definitions
 │   │   ├── __init__.py        # ResumeTailorWorkflow class
 │   │   └── agents.py          # All agent definitions + quality gate validators
+│   ├── paths.py               # Per-user data directory (SIRA_DATA_DIR)
 │   ├── models/                # Pydantic data models
 │   │   ├── agents/            # Agent output types (CV, JobAnalysis, AuditResult, etc.)
 │   │   │   ├── output.py      # Core output models
 │   │   │   └── deps.py        # Agent dependency types
 │   │   └── workflow.py        # ResumeTailorResult
 │   ├── memory/                # SQLite-backed resume memory
-│   ├── paths.py               # Per-user data directory (SIRA_DATA_DIR)
 │   │   ├── models.py          # Memory domain models
 │   │   ├── parser.py          # Resume parser adapter
 │   │   ├── repository.py      # Abstract repository interface

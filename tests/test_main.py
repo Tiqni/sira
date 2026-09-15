@@ -492,3 +492,36 @@ def test_open_memory_service_is_quiet_without_a_legacy_database(
     _open_memory_service()
 
     assert capsys.readouterr().out == ""
+
+
+def test_is_memory_job_id_finds_a_job_stored_in_a_legacy_database(
+    tmp_path, monkeypatch
+):
+    """`sira resume <id>` is a realistic first command after upgrading.
+
+    DBOS does not know the id (its database moved too), so `_resume_impl` asks
+    the memory whether the id is a Job ID. That lookup must migrate the legacy
+    database instead of creating an empty one that blocks the migration forever.
+    """
+    from sira import paths
+    from sira.main import _is_memory_job_id
+    from sira.memory.sqlite_repository import SQLiteResumeMemoryRepository
+
+    monkeypatch.chdir(tmp_path)
+    legacy = SQLiteResumeMemoryRepository(db_path=paths.LEGACY_MEMORY_DB_PATH)
+    source = legacy.upsert_original_source(
+        path="/r/a.md", content_hash="h1", is_active=True
+    )
+    job = legacy.save_tailored_resume(
+        source_id=source.id,
+        job_fingerprint="fp",
+        company_name="Acme",
+        job_title="Engineer",
+        tailored_cv_json="{}",
+        audit_report_json="{}",
+    )
+    legacy.close()
+
+    assert _is_memory_job_id(job.id) is True
+    assert not paths.LEGACY_MEMORY_DB_PATH.exists()
+    assert paths.memory_db_path().is_file()

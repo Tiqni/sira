@@ -50,6 +50,30 @@ def test_default_db_path_is_the_data_dir_database(tmp_path, monkeypatch):
     assert (tmp_path / "data" / "resume_memory.sqlite3").is_file()
 
 
+def test_default_constructor_moves_a_legacy_database_before_opening(
+    tmp_path, monkeypatch
+):
+    """No caller can skip the migration: it runs inside the default constructor.
+
+    Opening the new location first would create an empty database there, and
+    the migration never overwrites an existing target — the legacy data would
+    be orphaned for good.
+    """
+    from sira import paths
+
+    monkeypatch.setenv(paths.DATA_DIR_ENV, str(tmp_path / "data"))
+    legacy = SQLiteResumeMemoryRepository(db_path=paths.LEGACY_MEMORY_DB_PATH)
+    source = legacy.upsert_original_source(
+        path="/r/a.md", content_hash="h1", is_active=True
+    )
+    legacy.close()
+
+    repo = SQLiteResumeMemoryRepository()
+
+    assert repo.get_source_by_id(source.id) is not None
+    assert not paths.LEGACY_MEMORY_DB_PATH.exists()
+
+
 # ---------------------------------------------------------------------------
 # Schema initialisation
 # ---------------------------------------------------------------------------
