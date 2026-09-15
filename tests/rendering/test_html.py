@@ -50,7 +50,7 @@ def test_header_and_contact_line():
 
 def test_sections_use_semantic_classes_and_inline_markdown():
     html = render_html(_cv(), MODERN)
-    assert '<h2 class="section-title">Summary</h2>' in html
+    assert '<h2 class="section-title" id="section-summary">Summary</h2>' in html
     assert "<p>Builds <b>reliable</b> systems.</p>" in html
     assert '<p class="skill-group"><b>Languages:</b> Python, C&amp;C++</p>' in html
     assert (
@@ -66,7 +66,10 @@ def test_sections_use_semantic_classes_and_inline_markdown():
         '<p class="entry-head"><b>BSc</b> — TU · <span class="dates">2016</span></p>'
     ) in html
     assert '<p class="details">Honours</p>' in html
-    assert '<h2 class="section-title">Certifications</h2>' in html
+    assert (
+        '<h2 class="section-title" id="section-certifications">Certifications</h2>'
+        in html
+    )
 
 
 def test_empty_sections_are_omitted():
@@ -83,8 +86,25 @@ def test_no_tables_anywhere():
 
 def test_caps_style_uppercases_section_titles():
     html = render_html(_cv(), CLASSIC)
-    assert '<h2 class="section-title">SUMMARY</h2>' in html
+    assert '<h2 class="section-title" id="section-summary">SUMMARY</h2>' in html
     assert ">Summary</h2>" not in html
 
     html = render_html(_cv(), MODERN)
-    assert '<h2 class="section-title">Summary</h2>' in html
+    assert '<h2 class="section-title" id="section-summary">Summary</h2>' in html
+
+
+def test_every_section_has_an_id_and_a_matching_body_wrapper():
+    # pdf.py detects an orphaned heading by its "-body" div opening on a
+    # later page, so the two ids must exist in pairs for every section.
+    html = render_html(_cv(), MODERN)
+    for slug in (
+        "summary",
+        "skills",
+        "experience",
+        "projects",
+        "education",
+        "certifications",
+    ):
+        assert f'id="section-{slug}"' in html, slug
+        assert f'<div class="section-body" id="section-{slug}-body">' in html, slug
+    assert 'id="section-publications"' not in html  # empty section, omitted
