@@ -83,6 +83,7 @@ Pattern variables: `{company_name}`, `{job_title}`, `{full_name}`, `{timestamp}`
   - `markdown_writer.py` — Generates the self-review report's Markdown (`generate_report_markdown`).
   - `cv_diff.py` — Computes structural diffs, gap analysis, the match score and the verdict (pure Python over the skill matcher's verdicts).
   - `skill_matching.py` — `render_cv_text` (CV → plain text) and the literal skill pre-pass (`literal_matches`); no model calls.
+  - `skill_cleanup.py` — `clean_skill_groups`: collapses version/case/acronym duplicates across skill groups (pure Python, idempotent); applied to the parsed CV before caching and to the original and tailored CVs in the workflow.
 - `sira/rendering/` renders the tailored `CV` to `.md`/`.pdf`/`.docx` via `render_resume(cv, dir, base_name, style)`; one `TemplateSpec` per style (`modern`, `classic`, `compact`) drives both the PDF CSS and the DOCX styler.
 - `sira/workflows/skill_matching.py` — `match_skills`: orchestrates the literal pre-pass, then `skill_matcher_agent` for the remaining skills, falling back to literal-only matching on `AgentRunError`.
 

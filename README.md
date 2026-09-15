@@ -395,6 +395,7 @@ sira/
 │   │   └── markdown.py       # CV → Markdown
 │   └── utils/                 # Markdown writer, resume conversion, CV diff
 │       ├── cv_diff.py         # Pure-Python CV diff, gap analysis, match score
+│       ├── skill_cleanup.py   # Collapse duplicate skill variants
 │       ├── markdown_writer.py # generate_report_markdown
 │       ├── resume_converter.py  # DOCX/PDF → Markdown conversion
 │       └── validate_inputs.py

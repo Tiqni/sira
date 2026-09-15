@@ -59,7 +59,8 @@ Stages 3-5 form the **Write → Review → Audit inner loop**: after the initial
 
 - **Responsibility**: Parse Markdown resume text into a structured `CV` object. Extract ALL skills from every section (summary, experience, projects, certifications, education, publications).
 - **Output**: `CV` (`full_name`, `contact` [`ContactInfo`: email, phone, location, links], `summary`, `skill_groups` [`SkillGroup`: category, skills], `experience`, `education` [`Education`: degree, institution, dates, details], `projects` [`Project`: name, description, link], `certifications`, `publications`; `cv.skills` is a read-only flattened property, not a schema field)
-- **Key Rules**: Preserve ALL hyperlinks in `[text](url)` format. Never add or modify information. For senior resumes, expect 40+ skills.
+- **Key Rules**: Preserve ALL hyperlinks in `[text](url)` format. Never add or modify information. For senior resumes, expect 40+ skills. One entry per skill (no separate version or spelling variants); team, company, product and job-title names are not skills.
+- **Post-processing**: `utils/skill_cleanup.py::clean_skill_groups` runs on every parsed CV (before it is cached) and again on the original and tailored CVs inside the workflow. It collapses variants that differ only by case, separators or a trailing version (`Python 3.13+` → `Python`) and merges `X (ABC)` with `X` when both exist (the acronym form is kept). It never merges aliases (`Go`/`Golang`) or word forms — that would need a dictionary and could drop real content. Pure Python, idempotent.
 - **Retries**: 5
 - **Quality Gate**: Yes — validated by `_validate_resume_parser`
 
@@ -298,6 +299,7 @@ sira/tools/
 sira/utils/
 ├── cv_diff.py              # Pure Python CVDiff + GapAnalysis + match score
 ├── skill_matching.py       # render_cv_text, literal pre-pass
+├── skill_cleanup.py        # clean_skill_groups: duplicate skill variants → one entry
 ├── markdown_writer.py      # generate_report_markdown
 ├── resume_converter.py     # InputConverterRegistry: DOCX/PDF → Markdown via markitdown
 └── validate_inputs.py      # Standalone input validation (not used by Typer CLI)
