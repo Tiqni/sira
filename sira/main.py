@@ -284,7 +284,7 @@ def _write_outputs(
     cv_fallback = CV(
         full_name=full_name or "unknown",
         summary="",
-        skills=[],
+        skill_groups=[],
         experience=[],
         education=[],
     )

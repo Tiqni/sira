@@ -36,15 +36,22 @@ from sira.memory.models import (
 from sira.memory.parser import PydanticAIResumeParser, ResumeParserAdapter
 from sira.memory.repository import ResumeMemoryRepository
 from sira.memory.service import ResumeMemoryService
-from sira.models.agents.output import AuditResult, CV, WorkExperience
+from sira.models.agents.output import (
+    AuditResult,
+    CV,
+    ContactInfo,
+    Education,
+    SkillGroup,
+    WorkExperience,
+)
 
 
 def _make_cv(full_name: str = "Jane Doe") -> CV:
     return CV(
         full_name=full_name,
-        contact_info="jane@example.com",
+        contact=ContactInfo(email="jane@example.com"),
         summary="Summary.",
-        skills=["Python"],
+        skill_groups=[SkillGroup(category="Skills", skills=["Python"])],
         experience=[
             WorkExperience(
                 company="Acme",
@@ -53,7 +60,7 @@ def _make_cv(full_name: str = "Jane Doe") -> CV:
                 highlights=["Did stuff"],
             )
         ],
-        education=["BSc CS"],
+        education=[Education(degree="BSc CS", institution="State University")],
     )
 
 

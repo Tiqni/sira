@@ -2,10 +2,13 @@
 
 from sira.models.agents.output import (
     CV,
-    WorkExperience,
-    FinalReport,
+    ContactInfo,
     CVDiff,
+    Education,
+    FinalReport,
     GapAnalysis,
+    SkillGroup,
+    WorkExperience,
 )
 from sira.models.workflow import ResumeTailorResult
 
@@ -13,9 +16,9 @@ from sira.models.workflow import ResumeTailorResult
 def make_cv(full_name: str = "Jane Doe") -> CV:
     return CV(
         full_name=full_name,
-        contact_info="jane@example.com",
+        contact=ContactInfo(email="jane@example.com"),
         summary="Platform engineer.",
-        skills=["Python", "SQL"],
+        skill_groups=[SkillGroup(category="Languages", skills=["Python", "SQL"])],
         experience=[
             WorkExperience(
                 company="Acme",
@@ -24,7 +27,7 @@ def make_cv(full_name: str = "Jane Doe") -> CV:
                 highlights=["Built services"],
             )
         ],
-        education=["BSc CS"],
+        education=[Education(degree="BSc CS", institution="State University")],
     )
 
 

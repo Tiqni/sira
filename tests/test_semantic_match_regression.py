@@ -17,7 +17,14 @@ import pytest
 from pydantic_ai.messages import ModelResponse, ToolCallPart
 from pydantic_ai.models.function import AgentInfo, DeltaToolCall, FunctionModel
 
-from sira.models.agents.output import CV, JobAnalysis, WorkExperience
+from sira.models.agents.output import (
+    CV,
+    ContactInfo,
+    Education,
+    JobAnalysis,
+    SkillGroup,
+    WorkExperience,
+)
 from sira.utils.cv_diff import (
     compute_gap_analysis,
     compute_match_score,
@@ -60,12 +67,23 @@ JUDGE_TABLE = {
 def _cv() -> CV:
     return CV(
         full_name="Sam Staff",
-        contact_info="sam@example.com",
+        contact=ContactInfo(email="sam@example.com"),
         summary=(
             "Staff engineer building production LLM systems: RAG pipelines, "
             "context engineering and evaluation for a grocery app."
         ),
-        skills=["Python", "PyTorch", "LangGraph", "Kubernetes", "Observability"],
+        skill_groups=[
+            SkillGroup(
+                category="Skills",
+                skills=[
+                    "Python",
+                    "PyTorch",
+                    "LangGraph",
+                    "Kubernetes",
+                    "Observability",
+                ],
+            )
+        ],
         experience=[
             WorkExperience(
                 company="Picnic-like Co",
@@ -83,7 +101,9 @@ def _cv() -> CV:
                 ],
             )
         ],
-        education=["MSc Computer Science"],
+        education=[
+            Education(degree="MSc Computer Science", institution="State University")
+        ],
     )
 
 

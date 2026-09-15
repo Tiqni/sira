@@ -88,13 +88,19 @@ def sample_pdf(tmp_path: Path) -> Path:
 
 @pytest.fixture
 def sample_cv(tmp_path: Path):
-    from sira.models.agents.output import CV, WorkExperience
+    from sira.models.agents.output import (
+        CV,
+        ContactInfo,
+        Education,
+        SkillGroup,
+        WorkExperience,
+    )
 
     return CV(
         full_name="Jane Smith",
-        contact_info="jane@example.com",
+        contact=ContactInfo(email="jane@example.com"),
         summary="Experienced Python engineer.",
-        skills=["Python", "Django"],
+        skill_groups=[SkillGroup(category="Skills", skills=["Python", "Django"])],
         experience=[
             WorkExperience(
                 company="Acme Corp",
@@ -103,7 +109,9 @@ def sample_cv(tmp_path: Path):
                 highlights=["Built microservices"],
             )
         ],
-        education=["BSc CS, State University, 2018"],
+        education=[
+            Education(degree="BSc CS", institution="State University", dates="2018")
+        ],
     )
     path = tmp_path / "resume.md"
     path.write_text(SAMPLE_MARKDOWN, encoding="utf-8")

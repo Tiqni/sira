@@ -7,6 +7,7 @@ from sira.models.agents.output import (
     JobAnalysis,
     ReportNarrative,
     ReviewResult,
+    SkillGroup,
     SkillMatch,
     SkillMatchResult,
 )
@@ -621,7 +622,11 @@ async def test_interactive_weak_match_feedback_then_partial(monkeypatch, sample_
     keyword, so the verdict rises to Partial."""
     writer_prompts = []
     enhanced_cv = sample_cv.model_copy(
-        update={"skills": [*sample_cv.skills, "Kubernetes"]}
+        update={
+            "skill_groups": [
+                SkillGroup(category="Skills", skills=[*sample_cv.skills, "Kubernetes"])
+            ]
+        }
     )
 
     async def run_writer_capture(*args, **kwargs):

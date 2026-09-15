@@ -21,6 +21,39 @@ class JobAnalysis(BaseModel):
 
 
 # --- Model for the CV ---
+class ContactInfo(BaseModel):
+    email: str = ""
+    phone: str = ""
+    location: str = Field(default="", description="City, country — as written")
+    links: list[str] = Field(
+        default_factory=list,
+        description="LinkedIn, GitHub, website… keep markdown [text](url)",
+    )
+
+    def display_items(self) -> list[str]:
+        """Non-empty contact fields in display order: email, phone, location, links."""
+        candidates = (self.email, self.phone, self.location, *self.links)
+        return [item.strip() for item in candidates if item.strip()]
+
+
+class Education(BaseModel):
+    degree: str
+    institution: str
+    dates: str = ""
+    details: str = Field(default="", description="Honours, GPA, thesis — optional")
+
+
+class Project(BaseModel):
+    name: str
+    description: str
+    link: str = Field(default="", description="URL or markdown link, optional")
+
+
+class SkillGroup(BaseModel):
+    category: str = Field(description='e.g. "Languages", "Cloud", "Soft skills"')
+    skills: list[str]
+
+
 class WorkExperience(BaseModel):
     company: str
     role: str
@@ -30,20 +63,34 @@ class WorkExperience(BaseModel):
 
 class CV(BaseModel):
     full_name: str
-    contact_info: str = Field(default="", description="Email, phone, location, etc.")
+    contact: ContactInfo = Field(default_factory=ContactInfo)
     summary: str
-    skills: list[str] = Field(description="All technical and soft skills")
-    projects: list[str] = Field(
-        default_factory=list, description="Project descriptions"
+    skill_groups: list[SkillGroup] = Field(
+        description="Every skill in exactly one group, 4-8 groups for a full resume"
     )
     experience: list[WorkExperience]
-    education: list[str]
+    education: list[Education]
+    projects: list[Project] = Field(default_factory=list)
     certifications: list[str] = Field(
         default_factory=list, description="Professional certifications"
     )
     publications: list[str] = Field(
         default_factory=list, description="Publications, blogs, talks, etc."
     )
+
+    @property
+    def skills(self) -> list[str]:
+        """Flat skill list in group order; first spelling wins on case-insensitive
+        duplicates. Not part of the schema or the JSON."""
+        seen: set[str] = set()
+        flat: list[str] = []
+        for group in self.skill_groups:
+            for skill in group.skills:
+                key = skill.lower()
+                if key not in seen:
+                    seen.add(key)
+                    flat.append(skill)
+        return flat
 
 
 # --- Model for the Audit/Validation ---

@@ -3,7 +3,14 @@
 import inspect
 import pytest
 
-from sira.models.agents.output import CV, WorkExperience
+from sira.models.agents.output import (
+    CV,
+    ContactInfo,
+    Education,
+    Project,
+    SkillGroup,
+    WorkExperience,
+)
 from sira.workflows import ResumeTailorWorkflow
 
 
@@ -11,10 +18,15 @@ from sira.workflows import ResumeTailorWorkflow
 def sample_pre_parsed_cv():
     return CV(
         full_name="Jane Doe",
-        contact_info="jane@example.com",
+        contact=ContactInfo(email="jane@example.com"),
         summary="Senior engineer with 10 years experience",
-        skills=["Python", "TypeScript", "React", "AWS", "Docker", "Kubernetes"],
-        projects=["Built CI/CD pipeline"],
+        skill_groups=[
+            SkillGroup(
+                category="Skills",
+                skills=["Python", "TypeScript", "React", "AWS", "Docker", "Kubernetes"],
+            )
+        ],
+        projects=[Project(name="CI/CD pipeline", description="Built CI/CD pipeline")],
         experience=[
             WorkExperience(
                 company="Acme Corp",
@@ -23,7 +35,9 @@ def sample_pre_parsed_cv():
                 highlights=["Led team of 5", "Designed distributed system"],
             )
         ],
-        education=["BSc Computer Science"],
+        education=[
+            Education(degree="BSc Computer Science", institution="State University")
+        ],
         certifications=["AWS Solutions Architect"],
         publications=[],
     )

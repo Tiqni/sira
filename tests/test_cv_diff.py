@@ -7,7 +7,10 @@ import pytest
 
 from sira.models.agents.output import (
     CV,
+    ContactInfo,
+    Education,
     JobAnalysis,
+    SkillGroup,
     WorkExperience,
 )
 from sira.utils.cv_diff import compute_cv_diff, compute_gap_analysis
@@ -22,9 +25,14 @@ from sira.utils.cv_diff import compute_cv_diff, compute_gap_analysis
 def original_cv() -> CV:
     return CV(
         full_name="Alice Dev",
-        contact_info="alice@example.com",
+        contact=ContactInfo(email="alice@example.com"),
         summary="Backend engineer with 5 years experience.",
-        skills=["Python", "Django", "PostgreSQL", "Redis", "Docker"],
+        skill_groups=[
+            SkillGroup(
+                category="Skills",
+                skills=["Python", "Django", "PostgreSQL", "Redis", "Docker"],
+            )
+        ],
         experience=[
             WorkExperience(
                 company="Acme Corp",
@@ -36,7 +44,12 @@ def original_cv() -> CV:
                 ],
             )
         ],
-        education=["BSc Computer Science, MIT, 2019"],
+        education=[
+            Education(
+                degree="BSc Computer Science, MIT, 2019",
+                institution="State University",
+            )
+        ],
         certifications=[],
         publications=[],
         projects=[],
@@ -48,9 +61,14 @@ def tailored_cv(original_cv: CV) -> CV:
     """A tailored version: summary changed, skills reordered, one bullet rephrased."""
     return CV(
         full_name=original_cv.full_name,
-        contact_info=original_cv.contact_info,
+        contact=original_cv.contact,
         summary="Backend engineer focused on scalable APIs and cloud-native development.",
-        skills=["Python", "Docker", "Django", "PostgreSQL", "Redis"],  # Docker moved up
+        skill_groups=[
+            SkillGroup(
+                category="Skills",
+                skills=["Python", "Docker", "Django", "PostgreSQL", "Redis"],
+            )  # Docker moved up
+        ],
         experience=[
             WorkExperience(
                 company="Acme Corp",

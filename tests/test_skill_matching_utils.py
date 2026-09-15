@@ -1,16 +1,23 @@
 """Pure-Python helpers for semantic skill matching — no model calls."""
 
-from sira.models.agents.output import CV, WorkExperience
+from sira.models.agents.output import (
+    CV,
+    ContactInfo,
+    Education,
+    Project,
+    SkillGroup,
+    WorkExperience,
+)
 from sira.utils.skill_matching import literal_matches, normalise_text, render_cv_text
 
 
 def _cv() -> CV:
     return CV(
         full_name="Alice Dev",
-        contact_info="alice@example.com",
+        contact=ContactInfo(email="alice@example.com"),
         summary="Backend engineer doing context engineering for chat products.",
-        skills=["Python", "K8s"],
-        projects=["Open-source RAG toolkit"],
+        skill_groups=[SkillGroup(category="Skills", skills=["Python", "K8s"])],
+        projects=[Project(name="RAG toolkit", description="Open-source RAG toolkit")],
         experience=[
             WorkExperience(
                 company="Acme",
@@ -22,7 +29,7 @@ def _cv() -> CV:
                 ],
             )
         ],
-        education=["BSc CS"],
+        education=[Education(degree="BSc CS", institution="State University")],
         certifications=["AWS SAA"],
         publications=["Talk: Context windows"],
     )
@@ -32,14 +39,14 @@ def test_render_cv_text_includes_every_section(subtests):
     text = render_cv_text(_cv())
     for needle in (
         "Summary: Backend engineer doing context engineering",
-        "Skills: Python, K8s",
+        "Skills — Skills: Python, K8s",
         "Experience:",
         "- Acme — Staff Engineer (2020-2024)",
         "  - Mentor to ~30 engineers.",
         "Projects:",
-        "- Open-source RAG toolkit",
+        "- RAG toolkit — Open-source RAG toolkit",
         "Education:",
-        "- BSc CS",
+        "- BSc CS — State University",
         "Certifications:",
         "- AWS SAA",
         "Publications:",
