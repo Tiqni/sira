@@ -5,6 +5,18 @@ All notable changes to this project are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## v2.0.0 (2026-09-15)
+
+### BREAKING CHANGE
+
+- the CV JSON schema changed; cached parses re-parse on
+the next run, stored tailored records from earlier versions cannot be
+reused by re-tailor's fallback path.
+
+### Feat
+
+- styled resume templates for PDF and DOCX (--style) (#19)
+
 ## v1.5.0 (2026-09-15)
 
 ### Feat
