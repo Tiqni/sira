@@ -682,3 +682,47 @@ def test_old_schema_cache_from_previous_parser_version_is_reparsed(
     assert _PARSER_VERSION != "1.1.0", "bump _PARSER_VERSION for the schema change"
     svc.resolve_original_resume(path=str(resume_file))
     assert parser.call_count == 2
+
+
+def test_parser_cleans_duplicate_skill_variants(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The adapter returns the agent's CV with version/case duplicates collapsed,
+    so the memory cache never stores the raw duplicates (issue #20)."""
+    from sira.models.agents.output import SkillGroup
+
+    raw = _make_cv().model_copy(
+        update={
+            "skill_groups": [
+                SkillGroup(category="Languages", skills=["Python", "Python 3.13+"]),
+                SkillGroup(category="Tools", skills=["python", "pytest"]),
+            ]
+        }
+    )
+
+    class _FakeAgent:
+        def run_sync(self, content: str, model=None) -> SimpleNamespace:
+            return SimpleNamespace(output=raw)
+
+    monkeypatch.setitem(
+        sys.modules,
+        "sira.workflows.agents",
+        SimpleNamespace(
+            resume_parser_agent=_FakeAgent(),
+            _parser_qs=SimpleNamespace(last_output=None),
+            resolve_model=lambda label: None,
+            normalize_model_name=lambda name: name,
+        ),
+    )
+
+    cv = PydanticAIResumeParser().parse("# Jane Doe")
+    assert [(g.category, g.skills) for g in cv.skill_groups] == [
+        ("Languages", ["Python"]),
+        ("Tools", ["pytest"]),
+    ]
+
+
+def test_parser_version_bumped_for_skill_rules_prompt_change() -> None:
+    from sira.memory.parser import _PARSER_VERSION
+
+    assert _PARSER_VERSION == "2.1.0"

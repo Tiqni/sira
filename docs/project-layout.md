@@ -42,6 +42,7 @@ sira/                            # the Python package
 └── utils/                       # no model calls live in here
     ├── cv_diff.py               # CVDiff + GapAnalysis + match score, pure Python
     ├── skill_matching.py        # CV text rendering + literal skill pre-pass
+    ├── skill_cleanup.py         # collapse duplicate skill variants (pure Python)
     ├── markdown_writer.py       # generate_report_markdown
     ├── resume_converter.py      # DOCX/PDF → Markdown (markitdown)
     └── validate_inputs.py       # deprecated, unused by the CLI

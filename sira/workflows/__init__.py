@@ -20,6 +20,7 @@ from sira.utils.cv_diff import (
     compute_match_score,
     compute_recommendation,
 )
+from sira.utils.skill_cleanup import clean_skill_groups
 from sira.workflows import agents as agents_mod
 from sira.workflows.agents import (
     USAGE_LIMITS,
@@ -465,6 +466,9 @@ class ResumeTailorWorkflow:
         )
         self._reporter.log(f"   🎯 Keywords found: {job_analysis.keywords_to_target}\n")
 
+        # Deterministic, idempotent: collapses "Python"/"Python 3.13+" style
+        # duplicates whatever the CV's origin (fresh parse, cache, re-tailor).
+        original_cv = clean_skill_groups(original_cv)
         original_cv_json = original_cv.model_dump_json()
         job_data_json = job_analysis.model_dump_json()
 
@@ -681,6 +685,10 @@ Focus on better highlighting relevant experience and incorporating job keywords 
 
                 # --- STEP 3: AUDIT (Agent 3) ---
                 self._set_stage("AUDITING_CV")
+                if isinstance(new_cv, CV):
+                    # The writer may re-introduce variants; clean before the
+                    # audit so the auditor and the renderer see the same CV.
+                    new_cv = clean_skill_groups(new_cv)
                 new_cv_json = (
                     new_cv.model_dump_json()
                     if hasattr(new_cv, "model_dump_json")

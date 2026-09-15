@@ -697,3 +697,33 @@ async def test_checkpoint_non_tty_auto_continues(monkeypatch, sample_cv):
         "# resume", job_content="job description"
     )
     assert result.passed is False
+
+
+@pytest.mark.anyio
+async def test_tailored_cv_has_duplicate_skill_variants_collapsed(
+    monkeypatch, sample_cv
+) -> None:
+    """Both the original and the written CV go through the skill clean-up, so the
+    rendered Skills section never repeats a skill (issue #20)."""
+    from sira.models.agents.output import CV
+    from tests.workflows.stubs import install_pipeline_stubs
+
+    noisy = sample_cv.model_copy(
+        update={
+            "skill_groups": [
+                SkillGroup(
+                    category="Languages", skills=["Python", "Python 3.13+", "Go"]
+                ),
+                SkillGroup(category="Tools", skills=["python", "Django", "Go 1.22+"]),
+            ]
+        }
+    )
+    install_pipeline_stubs(monkeypatch, noisy)
+
+    result = await ResumeTailorWorkflow().run("# resume", "files/job_posting.md")
+
+    tailored = CV.model_validate_json(result.tailored_resume)
+    assert [(g.category, g.skills) for g in tailored.skill_groups] == [
+        ("Languages", ["Python", "Go"]),
+        ("Tools", ["Django"]),
+    ]

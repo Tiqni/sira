@@ -399,6 +399,10 @@ resume_parser_agent = Agent(
        database, and soft skill mentioned anywhere in the resume is a skill — capture it
     4. For a senior professional resume, expect to extract 40+ individual skills
     5. Do NOT add or modify any information — preserve the exact wording
+    5a. One entry per skill: do not list versions or spelling variants separately
+        ("Python 3.13+" and "Python" are one skill: "Python"). Team names, company or
+        product names, job titles and configuration vocabulary ("environment variable",
+        "Data Platform Team", "Yahoo") are NOT skills — leave them out of skill_groups.
     6. Structure work experience with company, role, dates, and highlight bullets
     7. Put every skill into exactly one skill_groups entry. Use 4-8 category names that
        fit the resume, for example: Languages, Frameworks & Libraries, Cloud & Infrastructure,

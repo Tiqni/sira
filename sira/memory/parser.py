@@ -14,8 +14,9 @@ to avoid requiring an ``OPENAI_API_KEY`` at import time (tests use a fake).
 from abc import ABC, abstractmethod
 
 from sira.models.agents.output import CV
+from sira.utils.skill_cleanup import clean_skill_groups
 
-_PARSER_VERSION = "2.0.0"
+_PARSER_VERSION = "2.1.0"
 
 
 class ResumeParserAdapter(ABC):
@@ -161,4 +162,5 @@ class PydanticAIResumeParser(ResumeParserAdapter):
                 f"{type(output).__name__}; expected CV."
             )
 
-        return output
+        # Collapse duplicate skill variants before the CV is cached.
+        return clean_skill_groups(output)
