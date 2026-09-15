@@ -15,7 +15,7 @@ from abc import ABC, abstractmethod
 
 from sira.models.agents.output import CV
 
-_PARSER_VERSION = "1.1.0"
+_PARSER_VERSION = "2.0.0"
 
 
 class ResumeParserAdapter(ABC):
