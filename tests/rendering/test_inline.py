@@ -24,6 +24,17 @@ def test_unsafe_scheme_renders_as_plain_text():
     assert inline_markdown_to_html("[x](javascript:alert(1))") == "x"
 
 
+def test_link_with_whitespace_in_url_is_not_a_link():
+    assert (
+        inline_markdown_to_html("[a](https://ex ample.com)")
+        == "[a](https://ex ample.com)"
+    )
+
+
+def test_empty_url_renders_plain_text():
+    assert inline_markdown_to_html("[text]()") == "text"
+
+
 def test_user_text_is_escaped():
     assert inline_markdown_to_html("<script>&") == "&lt;script&gt;&amp;"
     assert inline_markdown_to_html('[a"b](https://x.io/?q="1")') == (

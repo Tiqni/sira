@@ -17,8 +17,11 @@ _SAFE_SCHEMES = ("http://", "https://", "mailto:")
 
 # Alternation order matters: bold (**) must be tried before italic (*).
 _TOKEN = re.compile(
-    r"\[(?P<ltext>[^\]]+)\]\((?P<lurl>(?:[^)(]|\([^)]*\))*)\)"
-    r"|(?P<url>https?://[^\s<>()\[\]]+)"
+    r"\[(?P<ltext>[^\]]+)\]\((?P<lurl>(?:[^)(\s]|\([^)\s]*\))*)\)"
+    # Excludes a bare URL directly after "](" so a malformed link whose URL
+    # contains whitespace (rejected above) isn't re-matched as a stray bare
+    # URL fragment — it should stay untouched plain text, brackets and all.
+    r"|(?<!\]\()(?P<url>https?://[^\s<>()\[\]]+)"
     r"|\*\*(?P<bold>[^*]+)\*\*"
     r"|\*(?P<italic>[^*]+)\*"
     r"|`(?P<code>[^`]+)`"
