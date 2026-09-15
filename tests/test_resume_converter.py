@@ -123,7 +123,7 @@ class TestInputConverterRegistry:
         registry = InputConverterRegistry()
         assert isinstance(registry.get(".docx"), DocxInputConverter)
 
-    def test_get_returns_pdf_converter(self):
+    def test_get_returns_pdf_input_converter(self):
         registry = InputConverterRegistry()
         assert isinstance(registry.get(".pdf"), PdfInputConverter)
 

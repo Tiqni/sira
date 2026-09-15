@@ -21,7 +21,6 @@ dependencies = [
     "html2text>=2025.4.15",
     "jinja2>=3.1",
     "markdown>=3.10",
-    "markdown-pdf>=1.10",
     "markitdown[docx,pdf]>=0.1.0",
     "platformdirs>=4",
     "playwright>=1.56.0",

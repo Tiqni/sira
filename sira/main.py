@@ -10,6 +10,7 @@ import subprocess
 import sys
 import uuid
 from datetime import date, datetime
+from enum import Enum
 from pathlib import Path
 
 import typer
@@ -30,10 +31,8 @@ from sira.models.agents.output import (
 )
 from sira.models.workflow import ResumeTailorResult, RunMetadata, TailorInputs
 from sira.paths import migrate_legacy_memory_db
-from sira.utils.markdown_writer import (
-    generate_report_markdown,
-    generate_resume,
-)
+from sira.rendering import DEFAULT_STYLE, STYLES, render_resume
+from sira.utils.markdown_writer import generate_report_markdown
 from sira.utils.resume_converter import (
     ConversionFailedError,
     InputConverterRegistry,
@@ -82,6 +81,11 @@ app = typer.Typer()
 # Default models used by the --fast speed preset.
 _FAST_PRESET_FAST_MODEL = "openai:gpt-5-nano"
 _FAST_PRESET_STRONG_MODEL = "openai:gpt-5-mini"
+
+# Typer renders Enum choices in --help; the test suite checks it matches STYLES.
+ResumeStyle = Enum("ResumeStyle", {name: name for name in STYLES}, type=str)  # type: ignore[misc]
+
+_STYLE_HELP = "Resume template for the PDF and DOCX: " + ", ".join(STYLES)
 
 
 def _apply_fast_preset(model: str | None) -> tuple[int, int, bool, int]:
@@ -262,6 +266,7 @@ def _write_outputs(
     resume_name_pattern: str,
     debug: bool,
     timestamp: str | None = None,
+    style: str = DEFAULT_STYLE,
 ) -> tuple[int, str | None, str | None]:
     """Write the tailored CV and the report; return (exit_code, resume_path, report_path).
 
@@ -270,15 +275,16 @@ def _write_outputs(
     """
     resume_path = None
     report_path = None
+    exit_code = 0
 
     # Guard CV parsing: workflow may return empty or invalid tailored_resume
-    full_name = ""
+    cv: CV | None = None
     if result.tailored_resume:
         try:
             cv = CV.model_validate_json(result.tailored_resume)
-            full_name = cv.full_name
         except (ValidationError, ValueError):
-            full_name = ""
+            cv = None
+    full_name = cv.full_name if cv else ""
 
     # Build a minimal CV-like object for pattern resolution if parsing failed
     cv_fallback = CV(
@@ -322,7 +328,19 @@ def _write_outputs(
 
     if result.passed:
         console.print("\n✅ Audit Passed. Saving CV...")
-        resume_path = generate_resume(result, job_dir, resume_base_name)
+        if cv is None:
+            console.print(
+                "[red]❌ The tailored resume is not a valid CV; nothing saved.[/red]"
+            )
+            exit_code = 1
+        else:
+            rendered = render_resume(cv, Path(job_dir), resume_base_name, style=style)
+            resume_path = str(rendered.markdown)
+            console.print("✅ Tailored CV saved to:")
+            for path in rendered.written:
+                console.print(f"   - {path}")
+            for fmt, error in rendered.errors.items():
+                console.print(f"[yellow]⚠️ Failed to write {fmt}: {error}[/yellow]")
     else:
         console.print("\n❌ Audit Failed. Please review the feedback and try again.")
         feedback = result.audit_report.get("feedback_summary", "No feedback available")
@@ -343,7 +361,7 @@ def _write_outputs(
     else:
         console.print("\n⚠️ Self-review report could not be generated.")
 
-    return 0, resume_path, report_path
+    return exit_code, resume_path, report_path
 
 
 _EMPTY_RESULT = ResumeTailorResult(
@@ -370,6 +388,7 @@ async def _run_workflow(
     interactive: bool = False,
     metadata: RunMetadata | None = None,
     run_id: str | None = None,
+    style: str = DEFAULT_STYLE,
 ) -> tuple[int, str | None, str | None, ResumeTailorResult]:
     set_quality_gate(enabled=quality_gate, threshold=gate_threshold)
     workflow = ResumeTailorWorkflow(
@@ -425,6 +444,7 @@ async def _run_workflow(
         resume_name_pattern=resume_name_pattern,
         debug=debug,
         timestamp=metadata.started_on if metadata and metadata.started_on else None,
+        style=style,
     )
     return exit_code, resume_path_out, report_path_out, result
 
@@ -611,6 +631,7 @@ async def _tailor_impl(
     fast: bool = False,
     interactive: bool = False,
     run_id: str | None = None,
+    style: str = DEFAULT_STYLE,
 ) -> int:
     """Async implementation of tailor command."""
     run_id = run_id or str(uuid.uuid4())
@@ -782,6 +803,7 @@ async def _tailor_impl(
                 interactive=interactive,
                 metadata=metadata,
                 run_id=run_id,
+                style=style,
             )
         finally:
             install_global_reporter(None)
@@ -853,6 +875,9 @@ def tailor(
         "-i",
         help="Pause at quality checkpoints and ask what to do (audit failures, weak match). Allows providing feedback to retry.",
     ),
+    style: ResumeStyle = typer.Option(
+        ResumeStyle(DEFAULT_STYLE), "--style", help=_STYLE_HELP, case_sensitive=False
+    ),
 ) -> None:
     """Run the full resume tailoring workflow."""
     run_id = str(uuid.uuid4())
@@ -878,6 +903,7 @@ def tailor(
                     fast=fast,
                     interactive=interactive,
                     run_id=run_id,
+                    style=style.value,
                 )
             )
     except KeyboardInterrupt:
@@ -905,6 +931,7 @@ async def _re_tailor_impl(
     fast: bool = False,
     interactive: bool = False,
     run_id: str | None = None,
+    style: str = DEFAULT_STYLE,
 ) -> int:
     """Async implementation of re-tailor command."""
     run_id = run_id or str(uuid.uuid4())
@@ -1044,6 +1071,7 @@ async def _re_tailor_impl(
                 interactive=interactive,
                 metadata=metadata,
                 run_id=run_id,
+                style=style,
             )
         finally:
             install_global_reporter(None)
@@ -1120,6 +1148,9 @@ def re_tailor(
         "-i",
         help="Pause at quality checkpoints and ask what to do (audit failures, weak match). Allows providing feedback to retry.",
     ),
+    style: ResumeStyle = typer.Option(
+        ResumeStyle(DEFAULT_STYLE), "--style", help=_STYLE_HELP, case_sensitive=False
+    ),
 ) -> None:
     """Re-run tailoring with recommendations from a prior audit."""
     run_id = str(uuid.uuid4())
@@ -1143,6 +1174,7 @@ def re_tailor(
                     fast=fast,
                     interactive=interactive,
                     run_id=run_id,
+                    style=style.value,
                 )
             )
     except KeyboardInterrupt:
@@ -1164,7 +1196,9 @@ def _is_memory_job_id(candidate: str) -> bool:
         return False
 
 
-async def _resume_impl(run_id: str, *, verbose: bool = False) -> int:
+async def _resume_impl(
+    run_id: str, *, verbose: bool = False, style: str = DEFAULT_STYLE
+) -> int:
     """Continue a stored run and finish its post-processing (files, memory)."""
     reporter = (
         VerboseReporter(console=console) if verbose else LiveDashboard(console=console)
@@ -1248,6 +1282,7 @@ async def _resume_impl(run_id: str, *, verbose: bool = False) -> int:
         resume_name_pattern=meta.resume_name_pattern,
         debug=inputs.debug,
         timestamp=meta.started_on or None,
+        style=style,
     )
     if exit_code == 0:
         if meta.job_id:
@@ -1281,11 +1316,14 @@ def resume(
     verbose: bool = typer.Option(
         False, "--verbose", "-v", help="Stream agent thinking and prompts in real-time"
     ),
+    style: ResumeStyle = typer.Option(
+        ResumeStyle(DEFAULT_STYLE), "--style", help=_STYLE_HELP, case_sensitive=False
+    ),
 ) -> None:
     """Continue a killed, crashed, or failed run from its last checkpoint."""
     try:
         with durable_runtime():
-            code = asyncio.run(_resume_impl(run_id, verbose=verbose))
+            code = asyncio.run(_resume_impl(run_id, verbose=verbose, style=style.value))
     except KeyboardInterrupt:
         console.print(f"\n⏹  Interrupted. Continue again with: sira resume {run_id}")
         raise typer.Exit(code=130)

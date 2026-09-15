@@ -77,12 +77,17 @@ def sample_docx(tmp_path: Path) -> Path:
 
 @pytest.fixture
 def sample_pdf(tmp_path: Path) -> Path:
-    from markdown_pdf import MarkdownPdf, Section
+    # markdown-pdf is not a project dependency (sira.rendering writes PDFs via
+    # PyMuPDF directly); build the sample with PyMuPDF too, so this fixture
+    # doesn't need its own package.
+    import pymupdf
 
-    pdf = MarkdownPdf()
-    pdf.add_section(Section(SAMPLE_MARKDOWN))
+    doc = pymupdf.open()
+    page = doc.new_page()
+    page.insert_textbox(page.rect + (36, 36, -36, -36), SAMPLE_MARKDOWN, fontsize=11)
     path = tmp_path / "resume.pdf"
-    pdf.save(str(path))
+    doc.save(str(path))
+    doc.close()
     return path
 
 

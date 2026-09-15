@@ -9,11 +9,13 @@ Coverage:
 - Invalid URL rejected early
 """
 
+from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from typer import Exit as TyperExit
 
+from sira.rendering import RenderedResume
 from sira.tools.job_scraper import RawScrape
 from tests.factories import make_cv, make_result
 
@@ -22,6 +24,15 @@ pytestmark = pytest.mark.anyio
 CLEANED_JOB_MD = (
     "# Senior Software Engineer\n\nRequirements: Python, distributed systems."
 )
+
+
+def _fake_render(md_path: str = "/fake/output/resume.md"):
+    path = Path(md_path)
+    return MagicMock(
+        return_value=RenderedResume(
+            markdown=path, pdf=path.with_suffix(".pdf"), docx=path.with_suffix(".docx")
+        )
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -44,7 +55,7 @@ def _setup_mocks(
     mock_workflow = MagicMock()
     mock_workflow.run = AsyncMock(return_value=workflow_result)
 
-    mock_generate_resume = MagicMock(return_value="/fake/output/resume.md")
+    mock_render_resume = _fake_render()
 
     mock_fetch = AsyncMock(
         return_value=RawScrape(
@@ -79,7 +90,7 @@ def _setup_mocks(
 
     mocks = {
         "workflow": mock_workflow,
-        "generate_resume": mock_generate_resume,
+        "render_resume": mock_render_resume,
         "fetch": mock_fetch,
         "scraper_run": mock_scraper_run,
         "service": mock_svc,
@@ -92,7 +103,7 @@ def _setup_mocks(
             "sira.main.ResumeTailorWorkflow",
             return_value=mock_workflow,
         ),
-        patch("sira.main.generate_resume", mock_generate_resume),
+        patch("sira.main.render_resume", mock_render_resume),
         patch(
             "sira.main.SQLiteResumeMemoryRepository",
             return_value=mock_repo,
@@ -154,8 +165,8 @@ async def test_tailor_impl_persists_result_on_success(
     with subtests.test("workflow.run called"):
         mocks["workflow"].run.assert_called_once()
 
-    with subtests.test("generate_resume called"):
-        mocks["generate_resume"].assert_called_once()
+    with subtests.test("render_resume called"):
+        mocks["render_resume"].assert_called_once()
 
     with subtests.test("save_tailored_resume called"):
         mocks["service"].save_tailored_resume.assert_called_once()
@@ -195,7 +206,7 @@ async def test_tailor_impl_failed_audit_persists_record(tmp_path, monkeypatch) -
     assert exit_code == 0
     mocks["workflow"].run.assert_called_once()
     mocks["service"].save_tailored_resume.assert_called_once()
-    mocks["generate_resume"].assert_not_called()
+    mocks["render_resume"].assert_not_called()
 
 
 @pytest.mark.anyio
@@ -233,7 +244,7 @@ async def test_tailor_impl_save_failure_handled_gracefully(
 
     assert exit_code == 0
     mocks["workflow"].run.assert_called_once()
-    mocks["generate_resume"].assert_called_once()
+    mocks["render_resume"].assert_called_once()
     mocks["service"].save_tailored_resume.assert_called_once()
 
 
@@ -399,10 +410,7 @@ async def test_tailor_impl_interactive_flag_wired_through(
             AsyncMock(return_value=MagicMock(output=CLEANED_JOB_MD)),
         ),
         _patch("sira.main.ResumeTailorWorkflow", CapturingWorkflow),
-        _patch(
-            "sira.main.generate_resume",
-            MagicMock(return_value="/fake/resume.md"),
-        ),
+        _patch("sira.main.render_resume", _fake_render("/fake/resume.md")),
         _patch("sira.main.SQLiteResumeMemoryRepository", MagicMock()),
         _patch("sira.main.PydanticAIResumeParser", MagicMock()),
         _patch(

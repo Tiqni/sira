@@ -6,11 +6,13 @@ Coverage:
 - Job posting content flows correctly to workflow
 """
 
+from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from typer import Exit as TyperExit
 
+from sira.rendering import RenderedResume
 from sira.tools.job_scraper import RawScrape
 from tests.factories import make_cv, make_result
 
@@ -19,6 +21,15 @@ pytestmark = pytest.mark.anyio
 CLEANED_JOB_MD = (
     "# Senior Software Engineer\n\nRequirements: Python, distributed systems."
 )
+
+
+def _fake_render(md_path: str = "/fake/output/resume.md"):
+    path = Path(md_path)
+    return MagicMock(
+        return_value=RenderedResume(
+            markdown=path, pdf=path.with_suffix(".pdf"), docx=path.with_suffix(".docx")
+        )
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -47,7 +58,7 @@ def _setup_mocks(
     mock_workflow = MagicMock()
     mock_workflow.run = AsyncMock(return_value=workflow_result)
 
-    mock_generate_resume = MagicMock(return_value="/fake/output/resume.md")
+    mock_render_resume = _fake_render()
 
     if fetch_error is not None:
         mock_fetch = AsyncMock(side_effect=fetch_error)
@@ -77,7 +88,7 @@ def _setup_mocks(
 
     mocks = {
         "workflow": mock_workflow,
-        "generate_resume": mock_generate_resume,
+        "render_resume": mock_render_resume,
         "fetch": mock_fetch,
         "scraper_run": mock_scraper_run,
         "service": mock_svc,
@@ -90,7 +101,7 @@ def _setup_mocks(
             "sira.main.ResumeTailorWorkflow",
             return_value=mock_workflow,
         ),
-        patch("sira.main.generate_resume", mock_generate_resume),
+        patch("sira.main.render_resume", mock_render_resume),
         patch(
             "sira.main.SQLiteResumeMemoryRepository",
             return_value=MagicMock(),
