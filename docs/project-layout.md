@@ -29,13 +29,20 @@ sira/                            # the Python package
 ├── tools/
 │   ├── playwright.py            # read_job_content_file (legacy agent tool)
 │   └── job_scraper_helpers.py   # HTML→Markdown, placeholder detection, cleanup
+├── rendering/
+│   ├── __init__.py       # render_resume(cv, dir, base_name, style) → .md/.pdf/.docx
+│   ├── templates.py      # TemplateSpec: modern, classic, compact
+│   ├── inline.py         # inline markdown subset (links, bold, italic, code)
+│   ├── html.py + resume.html.j2   # CV → HTML (Jinja2)
+│   ├── css.py            # TemplateSpec → CSS for the PDF
+│   ├── pdf.py            # HTML + CSS → PDF (PyMuPDF Story)
+│   ├── docx.py           # CV + TemplateSpec → DOCX (python-docx)
+│   └── markdown.py       # CV → Markdown
 └── utils/                       # no model calls live in here
     ├── cv_diff.py               # CVDiff + GapAnalysis + match score, pure Python
     ├── skill_matching.py        # CV text rendering + literal skill pre-pass
-    ├── markdown_writer.py       # generate_resume, generate_report_markdown
+    ├── markdown_writer.py       # generate_report_markdown
     ├── resume_converter.py      # DOCX/PDF → Markdown (markitdown)
-    ├── resume_output_converter.py
-    ├── pdf_converter.py         # markdown_to_pdf
     └── validate_inputs.py       # deprecated, unused by the CLI
 ```
 
@@ -142,7 +149,8 @@ Four independent mechanisms reduce end-to-end latency. `--fast` turns on all fou
 | Change the loop, retries, or fallbacks | `sira/workflows/__init__.py` |
 | Change what is stored, or the cache rules | `sira/memory/service.py` |
 | Change how progress is displayed | `sira/reporting/` |
-| Change how the resume or report file is written | `sira/utils/markdown_writer.py` |
+| Change how the resume is rendered, or add a style | `sira/rendering/` |
+| Change how the report file is written | `sira/utils/markdown_writer.py` |
 | Change scraping or HTML extraction | `sira/workflows/agents.py` + `sira/tools/job_scraper_helpers.py` |
 
 Most changes land in `workflows/agents.py`. It is the largest and most central file.

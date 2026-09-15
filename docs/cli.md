@@ -132,6 +132,7 @@ Every option below works on **both** commands, except `--resume-path`, which is
 | `--output-dir PATH` | `./output` | Root directory for generated files. |
 | `--output-pattern TEMPLATE` | `{company_name}-{job_title}` | Name of the per-job subdirectory. |
 | `--resume-name-pattern TEMPLATE` | `{company_name}-{full_name}` | Base filename for the generated resume, without extension. |
+| `--style modern\|classic\|compact` | `modern` | Template for the PDF and DOCX (also on `re-tailor` and `resume`). |
 
 Both patterns accept `{company_name}`, `{job_title}`, `{full_name}`, and `{timestamp}`
 (today's date as `YYYYMMDD`). Values are lowercased, spaces become underscores, and
