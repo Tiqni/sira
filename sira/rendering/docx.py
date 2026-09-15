@@ -120,32 +120,56 @@ def _apply_styles(doc, spec: TemplateSpec) -> None:
     dates.font.color.rgb = _rgb(spec.muted_hex)
 
 
-def _add_hyperlink(paragraph: Paragraph, text: str, url: str, accent_hex: str) -> None:
-    r_id = paragraph.part.relate_to(url, _HYPERLINK_REL, is_external=True)
-    hyperlink = OxmlElement("w:hyperlink")
-    hyperlink.set(qn("r:id"), r_id)
-    run = OxmlElement("w:r")
+def _add_hyperlink(
+    paragraph: Paragraph, run: Run, accent_hex: str, hyperlink=None
+) -> "OxmlElement":
+    """Append ``run`` as a hyperlink run; reuse ``hyperlink`` to extend one link.
+
+    Returns the ``w:hyperlink`` element so consecutive runs of the same link
+    ("<b>CKAD:</b> Certified") end up inside one hyperlink, not several.
+    """
+    if hyperlink is None:
+        r_id = paragraph.part.relate_to(run.href, _HYPERLINK_REL, is_external=True)
+        hyperlink = OxmlElement("w:hyperlink")
+        hyperlink.set(qn("r:id"), r_id)
+        paragraph._p.append(hyperlink)
+    docx_run = OxmlElement("w:r")
     rpr = OxmlElement("w:rPr")
+    # OOXML wants rPr children in schema order: rFonts, b, i, …, color, u.
+    if run.code:
+        rfonts = OxmlElement("w:rFonts")
+        for attr in ("w:ascii", "w:hAnsi", "w:eastAsia", "w:cs"):
+            rfonts.set(qn(attr), _CODE_FONT)
+        rpr.append(rfonts)
+    if run.bold:
+        rpr.append(OxmlElement("w:b"))
+    if run.italic:
+        rpr.append(OxmlElement("w:i"))
     color = OxmlElement("w:color")
     color.set(qn("w:val"), accent_hex.lstrip("#").upper())
     rpr.append(color)
     underline = OxmlElement("w:u")
     underline.set(qn("w:val"), "single")
     rpr.append(underline)
-    run.append(rpr)
+    docx_run.append(rpr)
     text_el = OxmlElement("w:t")
-    text_el.text = text
+    text_el.text = run.text
     text_el.set(qn("xml:space"), "preserve")
-    run.append(text_el)
-    hyperlink.append(run)
-    paragraph._p.append(hyperlink)
+    docx_run.append(text_el)
+    hyperlink.append(docx_run)
+    return hyperlink
 
 
 def _add_runs(paragraph: Paragraph, runs: list[Run], spec: TemplateSpec) -> None:
+    hyperlink = None  # the open w:hyperlink element, shared by consecutive runs
+    open_href = ""
     for run in runs:
         if run.href:
-            _add_hyperlink(paragraph, run.text, run.href, spec.accent_hex)
+            if run.href != open_href:
+                hyperlink, open_href = None, run.href
+            hyperlink = _add_hyperlink(paragraph, run, spec.accent_hex, hyperlink)
             continue
+        hyperlink, open_href = None, ""
         docx_run = paragraph.add_run(run.text)
         docx_run.bold = run.bold or None
         docx_run.italic = run.italic or None
