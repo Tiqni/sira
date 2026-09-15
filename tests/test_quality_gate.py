@@ -7,7 +7,10 @@ from pydantic_ai.exceptions import UnexpectedModelBehavior
 from pydantic_ai.models.test import TestModel
 from sira.models.agents.output import (
     CV,
+    ContactInfo,
+    Education,
     QualityCheckResult,
+    SkillGroup,
     WorkExperience,
 )
 from sira.reporting.base import use_reporter
@@ -21,9 +24,9 @@ models.ALLOW_MODEL_REQUESTS = False
 
 SAMPLE_CV = {
     "full_name": "Jane Smith",
-    "contact_info": "jane@example.com",
+    "contact": {"email": "jane@example.com"},
     "summary": "Software engineer with 5 years experience.",
-    "skills": ["Python", "FastAPI"],
+    "skill_groups": [{"category": "Skills", "skills": ["Python", "FastAPI"]}],
     "projects": [],
     "experience": [
         {
@@ -33,7 +36,9 @@ SAMPLE_CV = {
             "highlights": ["Built REST APIs"],
         }
     ],
-    "education": ["BSc Computer Science"],
+    "education": [
+        {"degree": "BSc Computer Science", "institution": "State University"}
+    ],
     "certifications": [],
     "publications": [],
 }
@@ -188,19 +193,21 @@ def test_quality_state_accepts_cv_assignment():
     """Verify _QualityState can store and retrieve CV objects."""
     from sira.workflows.agents import _parser_qs
 
-    from sira.models.agents.output import CV, WorkExperience
+    from sira.models.agents.output import CV, Education, WorkExperience
 
     cv = CV(
         full_name="Test User",
-        contact_info="test@example.com",
+        contact=ContactInfo(email="test@example.com"),
         summary="Summary text.",
-        skills=["Python"],
+        skill_groups=[SkillGroup(category="Skills", skills=["Python"])],
         experience=[
             WorkExperience(
                 company="X Corp", role="Engineer", dates="2020", highlights=[]
             )
         ],
-        education=["BSc Computer Science"],
+        education=[
+            Education(degree="BSc Computer Science", institution="State University")
+        ],
     )
     _parser_qs.last_output = cv
     assert _parser_qs.last_output.full_name == "Test User"
@@ -215,11 +222,11 @@ def _cv_for_gate() -> CV:
     return CV(
         full_name="Jane",
         summary="s",
-        skills=["Python"],
+        skill_groups=[SkillGroup(category="Skills", skills=["Python"])],
         experience=[
             WorkExperience(company="A", role="Eng", dates="2020", highlights=["x"])
         ],
-        education=["BSc"],
+        education=[Education(degree="BSc", institution="State University")],
     )
 
 

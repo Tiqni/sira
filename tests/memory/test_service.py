@@ -36,15 +36,22 @@ from sira.memory.models import (
 from sira.memory.parser import PydanticAIResumeParser, ResumeParserAdapter
 from sira.memory.repository import ResumeMemoryRepository
 from sira.memory.service import ResumeMemoryService
-from sira.models.agents.output import AuditResult, CV, WorkExperience
+from sira.models.agents.output import (
+    AuditResult,
+    CV,
+    ContactInfo,
+    Education,
+    SkillGroup,
+    WorkExperience,
+)
 
 
 def _make_cv(full_name: str = "Jane Doe") -> CV:
     return CV(
         full_name=full_name,
-        contact_info="jane@example.com",
+        contact=ContactInfo(email="jane@example.com"),
         summary="Summary.",
-        skills=["Python"],
+        skill_groups=[SkillGroup(category="Skills", skills=["Python"])],
         experience=[
             WorkExperience(
                 company="Acme",
@@ -53,7 +60,7 @@ def _make_cv(full_name: str = "Jane Doe") -> CV:
                 highlights=["Did stuff"],
             )
         ],
-        education=["BSc CS"],
+        education=[Education(degree="BSc CS", institution="State University")],
     )
 
 
@@ -646,3 +653,32 @@ async def test_aresolve_with_content_does_not_read_the_file(tmp_path: Path) -> N
     result = await svc.aresolve_original_resume(path=str(gone), content="# Jane")
     assert result.source.path == str(gone)
     assert parser.call_count == 1
+
+
+def test_old_schema_cache_from_previous_parser_version_is_reparsed(
+    tmp_path: Path,
+) -> None:
+    """A cached parse written by parser 1.x (flat skills, contact_info string)
+    must be ignored and re-parsed, not surfaced as a validation error."""
+    from sira.memory.parser import _PARSER_VERSION
+
+    resume_file = tmp_path / "resume.md"
+    resume_file.write_text("# Jane Doe")
+
+    repo = FakeRepository()
+    parser = FakeParser(version=_PARSER_VERSION)
+    svc = ResumeMemoryService(repository=repo, parser=parser)
+    resolved = svc.resolve_original_resume(path=str(resume_file))
+
+    old_schema_json = (
+        '{"full_name": "Jane Doe", "contact_info": "jane@example.com", '
+        '"summary": "s", "skills": ["Python"], "experience": [], '
+        '"education": ["BSc"]}'
+    )
+    repo._parsed[resolved.source.id] = repo._parsed[resolved.source.id].model_copy(
+        update={"cv_json": old_schema_json, "parser_version": "1.1.0"}
+    )
+
+    assert _PARSER_VERSION != "1.1.0", "bump _PARSER_VERSION for the schema change"
+    svc.resolve_original_resume(path=str(resume_file))
+    assert parser.call_count == 2

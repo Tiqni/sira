@@ -284,11 +284,16 @@ uv run python sira/main.py tailor <JOB_URL> <RESUME_PATH>
 
 Upon successful completion, output files are saved in job-specific subdirectories under `output/` (or the path specified via `--output-dir`). The subdirectory name follows the `--output-pattern` template (default: `{company_name}-{job_title}`).
 
-Three resume formats are generated per run:
+Three resume formats are generated per run, all rendered from the same structured
+CV the writer produced (the PDF and DOCX share one template, so they look the same):
 
-- `.md` — Markdown (source format)
-- `.pdf` — PDF (converted from Markdown)
-- `.docx` — DOCX (converted from Markdown)
+- `.md` — Markdown
+- `.pdf` — PDF
+- `.docx` — DOCX
+
+Pick the template with `--style modern|classic|compact` (default `modern`); see
+[Output and reports](https://tiqni.github.io/sira/output/#styles) for what each
+style looks like.
 
 A comprehensive self-review report is also generated:
 
@@ -378,12 +383,20 @@ sira/
 │   ├── tools/                 # Playwright scraping, HTML parsing helpers
 │   │   ├── playwright.py      # File I/O tool for agents
 │   │   └── job_scraper_helpers.py  # HTML→MD parsers, placeholder detection
+│   ├── rendering/
+│   │   ├── __init__.py       # render_resume(cv, dir, base_name, style) → .md/.pdf/.docx
+│   │   ├── errors.py         # RenderError
+│   │   ├── templates.py      # TemplateSpec: modern, classic, compact
+│   │   ├── inline.py         # inline markdown subset (links, bold, italic, code)
+│   │   ├── html.py + resume.html.j2   # CV → HTML (Jinja2)
+│   │   ├── css.py            # TemplateSpec → CSS for the PDF
+│   │   ├── pdf.py            # HTML + CSS → PDF (PyMuPDF Story)
+│   │   ├── docx.py           # CV + TemplateSpec → DOCX (python-docx)
+│   │   └── markdown.py       # CV → Markdown
 │   └── utils/                 # Markdown writer, resume conversion, CV diff
 │       ├── cv_diff.py         # Pure-Python CV diff, gap analysis, match score
-│       ├── markdown_writer.py # Markdown output generation
+│       ├── markdown_writer.py # generate_report_markdown
 │       ├── resume_converter.py  # DOCX/PDF → Markdown conversion
-│       ├── resume_output_converter.py
-│       ├── pdf_converter.py
 │       └── validate_inputs.py
 ├── tests/                     # Test suite
 │   ├── memory/                # Memory layer tests

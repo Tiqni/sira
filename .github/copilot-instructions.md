@@ -174,7 +174,8 @@ Avoid these terms in generated content:
 - `transformers>=4.45`, `torch>=2.2`: optional `guard` extra — local prompt-injection classifier
 - `html2text>=2025.4.15`: HTML → Markdown
 - `markitdown[docx,pdf]>=0.1.0`: DOCX/PDF → Markdown
-- `markdown>=3.10`, `markdown-pdf>=1.10`: Markdown/PDF output
+- `markdown>=3.10`: Markdown output
+- `pymupdf>=1.26`, `jinja2>=3.1`: styled PDF output
 - `python-docx>=1.1.0`: DOCX output
 - `typer>=0.25.1`: CLI framework
 - `rich>=14.2.0`: Console formatting

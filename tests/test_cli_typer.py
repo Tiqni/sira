@@ -1,15 +1,22 @@
 """Tests for CLI with Typer - tailor and re-tailor commands."""
 
 from datetime import date
+from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
-import os
 
 import pytest
 from typer.testing import CliRunner
 
 from sira.main import app
-from sira.models.agents.output import CV, WorkExperience
+from sira.models.agents.output import (
+    CV,
+    ContactInfo,
+    Education,
+    SkillGroup,
+    WorkExperience,
+)
 from sira.models.workflow import ResumeTailorResult
+from sira.rendering import RenderedResume
 from sira.tools.job_scraper import RawScrape
 
 CLEANED_JOB_MD = (
@@ -19,12 +26,21 @@ CLEANED_JOB_MD = (
 runner = CliRunner()
 
 
+def _fake_render(md_path: str = "/fake/output/resume.md"):
+    path = Path(md_path)
+    return MagicMock(
+        return_value=RenderedResume(
+            markdown=path, pdf=path.with_suffix(".pdf"), docx=path.with_suffix(".docx")
+        )
+    )
+
+
 def _make_cv(full_name: str = "Jane Doe") -> CV:
     return CV(
         full_name=full_name,
-        contact_info="jane@example.com",
+        contact=ContactInfo(email="jane@example.com"),
         summary="Platform engineer.",
-        skills=["Python", "SQL"],
+        skill_groups=[SkillGroup(category="Skills", skills=["Python", "SQL"])],
         experience=[
             WorkExperience(
                 company="Acme",
@@ -33,7 +49,7 @@ def _make_cv(full_name: str = "Jane Doe") -> CV:
                 highlights=["Built services"],
             )
         ],
-        education=["BSc CS"],
+        education=[Education(degree="BSc CS", institution="State University")],
     )
 
 
@@ -88,9 +104,7 @@ def test_tailor_command_success(tmp_path, monkeypatch) -> None:
 
     mock_workflow = MagicMock()
     mock_workflow.run = AsyncMock(return_value=workflow_result)
-    mock_generate_resume = MagicMock(
-        return_value=str(output_dir / "tailored_resume_acme_corp.md")
-    )
+    mock_render_resume = _fake_render()
 
     with (
         patch(
@@ -108,7 +122,7 @@ def test_tailor_command_success(tmp_path, monkeypatch) -> None:
             AsyncMock(return_value=MagicMock(output=CLEANED_JOB_MD)),
         ),
         patch("sira.main.ResumeTailorWorkflow", return_value=mock_workflow),
-        patch("sira.main.generate_resume", mock_generate_resume),
+        patch("sira.main.render_resume", mock_render_resume),
         patch("sira.main.SQLiteResumeMemoryRepository") as mock_repo_cls,
         patch("sira.main.PydanticAIResumeParser") as _,
         patch("sira.main.ResumeMemoryService") as mock_svc_cls,
@@ -141,7 +155,7 @@ def test_tailor_command_success(tmp_path, monkeypatch) -> None:
     assert result.exit_code == 0, result.output
     assert "✅ Job completed" in result.output
     mock_workflow.run.assert_called_once()
-    mock_generate_resume.assert_called_once()
+    mock_render_resume.assert_called_once()
 
 
 def test_tailor_command_invalid_url_format(tmp_path, monkeypatch) -> None:
@@ -234,9 +248,7 @@ def test_tailor_command_failed_audit_exits_zero(tmp_path, monkeypatch) -> None:
 
     mock_workflow = MagicMock()
     mock_workflow.run = AsyncMock(return_value=workflow_result)
-    mock_generate_resume = MagicMock(
-        return_value=str(output_dir / "tailored_resume_acme_corp.md")
-    )
+    mock_render_resume = _fake_render()
 
     with (
         patch(
@@ -254,7 +266,7 @@ def test_tailor_command_failed_audit_exits_zero(tmp_path, monkeypatch) -> None:
             AsyncMock(return_value=MagicMock(output=CLEANED_JOB_MD)),
         ),
         patch("sira.main.ResumeTailorWorkflow", return_value=mock_workflow),
-        patch("sira.main.generate_resume", mock_generate_resume),
+        patch("sira.main.render_resume", mock_render_resume),
         patch("sira.main.SQLiteResumeMemoryRepository") as mock_repo_cls,
         patch("sira.main.PydanticAIResumeParser") as _,
         patch("sira.main.ResumeMemoryService") as mock_svc_cls,
@@ -353,9 +365,7 @@ def test_tailor_command_docx_conversion(tmp_path, monkeypatch) -> None:
 
     mock_workflow = MagicMock()
     mock_workflow.run = AsyncMock(return_value=workflow_result)
-    mock_generate_resume = MagicMock(
-        return_value=str(output_dir / "tailored_resume_acme_corp.md")
-    )
+    mock_render_resume = _fake_render()
 
     with (
         patch(
@@ -373,7 +383,7 @@ def test_tailor_command_docx_conversion(tmp_path, monkeypatch) -> None:
             AsyncMock(return_value=MagicMock(output=CLEANED_JOB_MD)),
         ),
         patch("sira.main.ResumeTailorWorkflow", return_value=mock_workflow),
-        patch("sira.main.generate_resume", mock_generate_resume),
+        patch("sira.main.render_resume", mock_render_resume),
         patch("sira.main.SQLiteResumeMemoryRepository") as mock_repo_cls,
         patch("sira.main.PydanticAIResumeParser") as _,
         patch("sira.main.ResumeMemoryService") as mock_svc_cls,
@@ -423,16 +433,14 @@ def test_re_tailor_success(tmp_path, monkeypatch) -> None:
 
     mock_workflow = MagicMock()
     mock_workflow.run = AsyncMock(return_value=workflow_result)
-    mock_generate_resume = MagicMock(
-        return_value=str(output_dir / "tailored_resume_acme_corp.md")
-    )
+    mock_render_resume = _fake_render()
 
     resume_file = tmp_path / "resume.md"
     resume_file.write_text("# Jane Smith\n\nPython developer", encoding="utf-8")
 
     with (
         patch("sira.main.ResumeTailorWorkflow", return_value=mock_workflow),
-        patch("sira.main.generate_resume", mock_generate_resume),
+        patch("sira.main.render_resume", mock_render_resume),
         patch("sira.main.SQLiteResumeMemoryRepository") as mock_repo_cls,
         patch("sira.main.PydanticAIResumeParser") as _,
         patch("sira.main.ResumeMemoryService") as mock_svc_cls,
@@ -565,13 +573,11 @@ def test_re_tailor_with_resume_path(tmp_path, monkeypatch) -> None:
 
     mock_workflow = MagicMock()
     mock_workflow.run = AsyncMock(return_value=workflow_result)
-    mock_generate_resume = MagicMock(
-        return_value=str(output_dir / "tailored_resume_acme_corp.md")
-    )
+    mock_render_resume = _fake_render()
 
     with (
         patch("sira.main.ResumeTailorWorkflow", return_value=mock_workflow),
-        patch("sira.main.generate_resume", mock_generate_resume),
+        patch("sira.main.render_resume", mock_render_resume),
         patch("sira.main.SQLiteResumeMemoryRepository") as mock_repo_cls,
         patch("sira.main.PydanticAIResumeParser") as _,
         patch("sira.main.ResumeMemoryService") as mock_svc_cls,
@@ -704,10 +710,11 @@ def test_tailor_command_custom_patterns(tmp_path, monkeypatch) -> None:
 
     captured_args = {}
 
-    def mock_generate_resume(result, output_dir, base_filename):
-        captured_args["output_dir"] = output_dir
-        captured_args["base_filename"] = base_filename
-        return os.path.join(output_dir, f"{base_filename}.md")
+    def mock_render_resume(cv, output_dir, base_name, style="modern"):
+        captured_args["output_dir"] = str(output_dir)
+        captured_args["base_filename"] = base_name
+        md = Path(output_dir) / f"{base_name}.md"
+        return RenderedResume(markdown=md, pdf=None, docx=None)
 
     with (
         patch(
@@ -725,7 +732,7 @@ def test_tailor_command_custom_patterns(tmp_path, monkeypatch) -> None:
             AsyncMock(return_value=MagicMock(output=CLEANED_JOB_MD)),
         ),
         patch("sira.main.ResumeTailorWorkflow", return_value=mock_workflow),
-        patch("sira.main.generate_resume", mock_generate_resume),
+        patch("sira.main.render_resume", mock_render_resume),
         patch("sira.main.SQLiteResumeMemoryRepository") as mock_repo_cls,
         patch("sira.main.PydanticAIResumeParser") as _,
         patch("sira.main.ResumeMemoryService") as mock_svc_cls,
@@ -777,7 +784,12 @@ def test_tailor_accepts_fast_and_gate_flags():
     from sira.main import app
 
     runner = CliRunner()
-    result = runner.invoke(app, ["tailor", "--help"])
+    # A wide terminal (Rich reads COLUMNS when stdout isn't a real tty) keeps
+    # every option name on one line — with the default ~80 columns and this
+    # many options, Rich truncates long names like "--review-iterations" to
+    # "--review-iterat…" to fit its panel, which would fail the substring
+    # checks below for reasons unrelated to whether the flag was registered.
+    result = runner.invoke(app, ["tailor", "--help"], env={"COLUMNS": "300"})
     assert result.exit_code == 0
     # Strip ANSI styling before matching: in color mode (e.g. CI, where rich
     # emits color) each option's leading "--" is split by a style reset
@@ -806,17 +818,18 @@ def test_re_tailor_custom_patterns(tmp_path, monkeypatch) -> None:
 
     captured_args = {}
 
-    def mock_generate_resume(result, output_dir, base_filename):
-        captured_args["output_dir"] = output_dir
-        captured_args["base_filename"] = base_filename
-        return os.path.join(output_dir, f"{base_filename}.md")
+    def mock_render_resume(cv, output_dir, base_name, style="modern"):
+        captured_args["output_dir"] = str(output_dir)
+        captured_args["base_filename"] = base_name
+        md = Path(output_dir) / f"{base_name}.md"
+        return RenderedResume(markdown=md, pdf=None, docx=None)
 
     resume_file = tmp_path / "resume.md"
     resume_file.write_text("# Jane Smith\n\nPython developer", encoding="utf-8")
 
     with (
         patch("sira.main.ResumeTailorWorkflow", return_value=mock_workflow),
-        patch("sira.main.generate_resume", mock_generate_resume),
+        patch("sira.main.render_resume", mock_render_resume),
         patch("sira.main.SQLiteResumeMemoryRepository") as mock_repo_cls,
         patch("sira.main.PydanticAIResumeParser") as _,
         patch("sira.main.ResumeMemoryService") as mock_svc_cls,

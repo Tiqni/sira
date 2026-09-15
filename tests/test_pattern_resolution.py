@@ -3,16 +3,22 @@
 from datetime import date
 
 from sira.main import _is_safe_path_component, _resolve_pattern, _slugify
-from sira.models.agents.output import CV, WorkExperience
+from sira.models.agents.output import (
+    CV,
+    ContactInfo,
+    Education,
+    SkillGroup,
+    WorkExperience,
+)
 from sira.models.workflow import ResumeTailorResult
 
 
 def _make_cv(full_name: str = "Jane Doe") -> CV:
     return CV(
         full_name=full_name,
-        contact_info="jane@example.com",
+        contact=ContactInfo(email="jane@example.com"),
         summary="Platform engineer.",
-        skills=["Python", "SQL"],
+        skill_groups=[SkillGroup(category="Skills", skills=["Python", "SQL"])],
         experience=[
             WorkExperience(
                 company="Acme",
@@ -21,7 +27,7 @@ def _make_cv(full_name: str = "Jane Doe") -> CV:
                 highlights=["Built services"],
             )
         ],
-        education=["BSc CS"],
+        education=[Education(degree="BSc CS", institution="State University")],
     )
 
 

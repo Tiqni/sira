@@ -400,11 +400,18 @@ resume_parser_agent = Agent(
     4. For a senior professional resume, expect to extract 40+ individual skills
     5. Do NOT add or modify any information — preserve the exact wording
     6. Structure work experience with company, role, dates, and highlight bullets
-    7. Include all projects with their descriptions
-    8. Preserve all education entries, certifications, and publications
-    9. CRITICAL: Preserve ALL hyperlinks in their original markdown format [text](url).
-       Never convert clickable links to plain text or bare URLs. Links can appear in
-       summary, projects, publications, experience highlights, or any other field.
+    7. Put every skill into exactly one skill_groups entry. Use 4-8 category names that
+       fit the resume, for example: Languages, Frameworks & Libraries, Cloud & Infrastructure,
+       Databases, Tools, Practices, Soft Skills. Never leave a skill outside a group.
+    8. contact: split the header into email, phone, location and links. Links keep their
+       markdown form [text](url). Leave a field empty when the resume does not state it.
+    9. education: one entry per degree with degree, institution, dates and details
+       (honours, GPA, thesis). projects: one entry per project with name, description
+       and link (empty when none).
+    10. Preserve all certifications and publications as written
+    11. CRITICAL: Preserve ALL hyperlinks in their original markdown format [text](url).
+        Never convert clickable links to plain text or bare URLs. Links can appear in
+        summary, projects, publications, experience highlights, or any other field.
     """,
     output_type=CV,
     retries=2,
@@ -432,8 +439,11 @@ writer_agent = Agent(
     7. Keep a professional but natural tone
     8. Maintain chronological order and accurate dates
     9. If the original CV lacks a required skill, do NOT add it - focus on highlighting transferable skills instead
-    10. Group all the skills so that the most relevant skills to the job are at the top of the skills section
-    11. CRITICAL: Preserve ALL hyperlinks from the Original CV in their exact markdown format [text](url).
+    10. Within each skill group, order the skills most relevant to the job first. You may
+        reorder the groups so the most relevant group comes first. Do NOT rename, merge or
+        split groups, and do NOT move a skill to another group.
+    11. Never change contact details or education facts (degree, institution, dates).
+    12. CRITICAL: Preserve ALL hyperlinks from the Original CV in their exact markdown format [text](url).
         Never convert clickable links to plain text, bare URLs, or parenthetical URLs.
         You may rephrase the surrounding text, but the link syntax must stay intact.
     """,

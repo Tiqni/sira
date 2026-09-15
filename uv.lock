@@ -1649,19 +1649,6 @@ wheels = [
 ]
 
 [[package]]
-name = "markdown-pdf"
-version = "1.10"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "markdown-it-py" },
-    { name = "pymupdf" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/5e/e6/969311a194074afa9672324244adbf64a7e8663f2ba0003395b7140f5c4a/markdown_pdf-1.10.tar.gz", hash = "sha256:bcf23d816baa56aec3a60f940681652c4e46ee048c6335835cddf86d1ff20a8e", size = 17783, upload-time = "2025-09-24T19:01:38.758Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/1f/78/c593979cf1525be786d63b285a7a67afae397fc132382158432490ebd1ed/markdown_pdf-1.10-py3-none-any.whl", hash = "sha256:1863e78454e5aa9bcb34c125f385d4ff045c727660c5172877e82e69d06fae6d", size = 17994, upload-time = "2025-09-24T19:01:37.155Z" },
-]
-
-[[package]]
 name = "markdownify"
 version = "1.2.2"
 source = { registry = "https://pypi.org/simple" }
@@ -3601,12 +3588,13 @@ source = { editable = "." }
 dependencies = [
     { name = "aiofiles" },
     { name = "html2text" },
+    { name = "jinja2" },
     { name = "markdown" },
-    { name = "markdown-pdf" },
     { name = "markitdown", extra = ["docx", "pdf"] },
     { name = "platformdirs" },
     { name = "playwright" },
     { name = "pydantic-ai", extra = ["bedrock", "cohere", "dbos", "groq", "mistral"] },
+    { name = "pymupdf" },
     { name = "python-docx" },
     { name = "rich" },
     { name = "typer" },
@@ -3640,13 +3628,14 @@ docs = [
 requires-dist = [
     { name = "aiofiles", specifier = ">=25.1.0" },
     { name = "html2text", specifier = ">=2025.4.15" },
+    { name = "jinja2", specifier = ">=3.1" },
     { name = "markdown", specifier = ">=3.10" },
-    { name = "markdown-pdf", specifier = ">=1.10" },
     { name = "markitdown", extras = ["docx", "pdf"], specifier = ">=0.1.0" },
     { name = "platformdirs", specifier = ">=4" },
     { name = "playwright", specifier = ">=1.56.0" },
     { name = "pydantic-ai", extras = ["dbos", "groq", "mistral", "cohere", "bedrock"], specifier = ">=2.43,<3" },
     { name = "pydantic-ai", extras = ["xai"], marker = "extra == 'xai'", specifier = ">=2.43,<3" },
+    { name = "pymupdf", specifier = ">=1.26" },
     { name = "python-docx", specifier = ">=1.1.0" },
     { name = "rich", specifier = ">=14.2.0" },
     { name = "torch", marker = "extra == 'guard'", specifier = ">=2.2" },

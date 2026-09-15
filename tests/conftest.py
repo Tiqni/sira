@@ -77,24 +77,35 @@ def sample_docx(tmp_path: Path) -> Path:
 
 @pytest.fixture
 def sample_pdf(tmp_path: Path) -> Path:
-    from markdown_pdf import MarkdownPdf, Section
+    # markdown-pdf is not a project dependency (sira.rendering writes PDFs via
+    # PyMuPDF directly); build the sample with PyMuPDF too, so this fixture
+    # doesn't need its own package.
+    import pymupdf
 
-    pdf = MarkdownPdf()
-    pdf.add_section(Section(SAMPLE_MARKDOWN))
+    doc = pymupdf.open()
+    page = doc.new_page()
+    page.insert_textbox(page.rect + (36, 36, -36, -36), SAMPLE_MARKDOWN, fontsize=11)
     path = tmp_path / "resume.pdf"
-    pdf.save(str(path))
+    doc.save(str(path))
+    doc.close()
     return path
 
 
 @pytest.fixture
 def sample_cv(tmp_path: Path):
-    from sira.models.agents.output import CV, WorkExperience
+    from sira.models.agents.output import (
+        CV,
+        ContactInfo,
+        Education,
+        SkillGroup,
+        WorkExperience,
+    )
 
     return CV(
         full_name="Jane Smith",
-        contact_info="jane@example.com",
+        contact=ContactInfo(email="jane@example.com"),
         summary="Experienced Python engineer.",
-        skills=["Python", "Django"],
+        skill_groups=[SkillGroup(category="Skills", skills=["Python", "Django"])],
         experience=[
             WorkExperience(
                 company="Acme Corp",
@@ -103,7 +114,9 @@ def sample_cv(tmp_path: Path):
                 highlights=["Built microservices"],
             )
         ],
-        education=["BSc CS, State University, 2018"],
+        education=[
+            Education(degree="BSc CS", institution="State University", dates="2018")
+        ],
     )
     path = tmp_path / "resume.md"
     path.write_text(SAMPLE_MARKDOWN, encoding="utf-8")

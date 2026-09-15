@@ -45,18 +45,28 @@ def _contains_term(haystack: str, needle: str) -> bool:
 
 def render_cv_text(cv: CV) -> str:
     """Render every CV section as labelled plain text, one item per line."""
-    lines: list[str] = [
-        f"Summary: {cv.summary.strip()}",
-        "Skills: " + ", ".join(cv.skills),
-    ]
+    lines: list[str] = [f"Summary: {cv.summary.strip()}"]
+    for group in cv.skill_groups:
+        if group.skills:
+            lines.append(f"Skills — {group.category}: " + ", ".join(group.skills))
     if cv.experience:
         lines.append("Experience:")
         for exp in cv.experience:
             lines.append(f"- {exp.company} — {exp.role} ({exp.dates})")
             lines.extend(f"  - {bullet}" for bullet in exp.highlights)
+    if cv.projects:
+        lines.append("Projects:")
+        lines.extend(f"- {p.name} — {p.description}" for p in cv.projects)
+    if cv.education:
+        lines.append("Education:")
+        for edu in cv.education:
+            head = f"- {edu.degree} — {edu.institution}"
+            if edu.dates:
+                head += f" ({edu.dates})"
+            if edu.details:
+                head += f". {edu.details}"
+            lines.append(head)
     optional_sections = (
-        ("Projects", cv.projects),
-        ("Education", cv.education),
         ("Certifications", cv.certifications),
         ("Publications", cv.publications),
     )

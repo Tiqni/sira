@@ -2,6 +2,7 @@
 
 import asyncio
 import uuid
+from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from dbos import SetWorkflowID
@@ -9,10 +10,20 @@ from typer.testing import CliRunner
 
 from sira.main import app
 from sira.models.workflow import RunMetadata
+from sira.rendering import RenderedResume
 from sira.workflows import ResumeTailorWorkflow
 from tests.workflows.stubs import install_pipeline_stubs
 
 runner = CliRunner()
+
+
+def _fake_render(md_path: str = "/fake/output/resume.md"):
+    path = Path(md_path)
+    return MagicMock(
+        return_value=RenderedResume(
+            markdown=path, pdf=path.with_suffix(".pdf"), docx=path.with_suffix(".docx")
+        )
+    )
 
 
 def _memory_patches(service=None):
@@ -23,7 +34,7 @@ def _memory_patches(service=None):
         save_tailored_resume=MagicMock(return_value=MagicMock(id="job-1")),
     )
     return [
-        patch("sira.main.generate_resume", MagicMock(return_value="/fake/resume.md")),
+        patch("sira.main.render_resume", _fake_render("/fake/resume.md")),
         patch("sira.main.SQLiteResumeMemoryRepository", MagicMock()),
         patch("sira.main.PydanticAIResumeParser", MagicMock()),
         patch("sira.main.ResumeMemoryService", MagicMock(return_value=service)),

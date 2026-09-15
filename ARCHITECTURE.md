@@ -58,7 +58,7 @@ Stages 3-5 form the **Write → Review → Audit inner loop**: after the initial
 ### 1. Resume Parser (`resume_parser_agent`)
 
 - **Responsibility**: Parse Markdown resume text into a structured `CV` object. Extract ALL skills from every section (summary, experience, projects, certifications, education, publications).
-- **Output**: `CV` (full_name, contact_info, summary, skills, projects, experience, education, certifications, publications)
+- **Output**: `CV` (`full_name`, `contact` [`ContactInfo`: email, phone, location, links], `summary`, `skill_groups` [`SkillGroup`: category, skills], `experience`, `education` [`Education`: degree, institution, dates, details], `projects` [`Project`: name, description, link], `certifications`, `publications`; `cv.skills` is a read-only flattened property, not a schema field)
 - **Key Rules**: Preserve ALL hyperlinks in `[text](url)` format. Never add or modify information. For senior resumes, expect 40+ skills.
 - **Retries**: 5
 - **Quality Gate**: Yes — validated by `_validate_resume_parser`
@@ -129,7 +129,7 @@ All models are defined in `sira/models/agents/output.py` using Pydantic v2.
 
 | Model            | Purpose                    | Key Fields                                                                                                                |
 | ---------------- | -------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
-| `CV`             | Parsed resume structure    | `full_name`, `contact_info`, `summary`, `skills`, `experience`, `education`, `certifications`, `publications`, `projects` |
+| `CV`             | Parsed resume structure    | `full_name`, `contact` (`ContactInfo`: email, phone, location, links), `summary`, `skill_groups` (`SkillGroup`: category, skills), `experience`, `education` (`Education`: degree, institution, dates, details), `projects` (`Project`: name, description, link), `certifications`, `publications`; `cv.skills` is a read-only flattened property |
 | `WorkExperience` | Single job entry           | `company`, `role`, `dates`, `highlights`                                                                                  |
 | `JobAnalysis`    | Extracted job requirements | `job_title`, `company_name`, `summary`, `hard_skills`, `soft_skills`, `key_responsibilities`, `keywords_to_target`        |
 
@@ -193,7 +193,7 @@ All models are defined in `sira/models/agents/output.py` using Pydantic v2.
            └── Workflow assembles FinalReport from the computed numbers + narrative
 
 3. CLI post-processing
-   ├── If passed: generate_resume → .md + .pdf + .docx output files
+   ├── If passed: render_resume (sira/rendering/) → .md + .pdf + .docx output files
    ├── generate_report_markdown → _report.md
    ├── Files saved to output/{company_name}-{job_title}/
    └── Memory: ResumeMemoryService.save_tailored_resume → SQLite
@@ -298,14 +298,36 @@ sira/tools/
 sira/utils/
 ├── cv_diff.py              # Pure Python CVDiff + GapAnalysis + match score
 ├── skill_matching.py       # render_cv_text, literal pre-pass
-├── markdown_writer.py      # generate_resume (.md/.pdf/.docx), generate_report_markdown
+├── markdown_writer.py      # generate_report_markdown
 ├── resume_converter.py     # InputConverterRegistry: DOCX/PDF → Markdown via markitdown
-├── resume_output_converter.py  # Output format conversion utilities
-├── pdf_converter.py        # PDF creation helpers
 └── validate_inputs.py      # Standalone input validation (not used by Typer CLI)
 ```
 
 A same-named but different file, `sira/workflows/skill_matching.py`, holds the one exception to "no model calls in `utils/`": `match_skills` orchestration — literal pre-pass → `skill_matcher_agent` → fallback to literal-only matching on `AgentRunError`. It lives under `workflows/` because it calls a model; `utils/skill_matching.py` above stays model-free.
+
+---
+
+## Rendering Layer
+
+```
+sira/rendering/
+├── __init__.py       # render_resume(cv, dir, base_name, style) → .md/.pdf/.docx
+├── errors.py         # RenderError
+├── templates.py      # TemplateSpec: modern, classic, compact
+├── inline.py         # inline markdown subset (links, bold, italic, code)
+├── html.py + resume.html.j2   # CV → HTML (Jinja2)
+├── css.py            # TemplateSpec → CSS for the PDF
+├── pdf.py            # HTML + CSS → PDF (PyMuPDF Story)
+├── docx.py           # CV + TemplateSpec → DOCX (python-docx)
+└── markdown.py       # CV → Markdown
+```
+
+`render_resume` writes the Markdown first — a failure there propagates, since nothing
+useful was saved — then the PDF and DOCX, each independently guarded: a failing format
+is reported in `RenderedResume.errors` and its path is `None`, so one bad format never
+blocks the other two. One `TemplateSpec` per style (`modern`, `classic`, `compact`)
+drives both `css.py` (the PDF stylesheet) and `docx.py` (the DOCX styler), so the two
+outputs cannot drift apart.
 
 ---
 
@@ -391,7 +413,8 @@ Both commands are synchronous wrappers (`def`) that call `asyncio.run()` on asyn
 | Injection guard   | transformers + torch | ≥ 4.45 / ≥ 2.2 (opt-in `guard` extra) |
 | HTML→Markdown     | html2text       | ≥ 2025.4.15        |
 | DOCX/PDF→Markdown | markitdown      | ≥ 0.1.0            |
-| Markdown→PDF      | markdown-pdf    | ≥ 1.10             |
+| HTML→PDF          | pymupdf         | ≥ 1.26             |
+| HTML templating   | jinja2          | ≥ 3.1              |
 | DOCX generation   | python-docx     | ≥ 1.1.0            |
 | Rich output       | rich            | ≥ 14.2.0           |
 | Memory            | SQLite (stdlib) | —                  |

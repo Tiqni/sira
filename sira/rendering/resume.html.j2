@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html>
+<body>
+{% macro section_title(text) %}<h2 class="section-title">{{ text | upper if caps else text }}</h2>{% endmacro %}
+<div class="name">{{ cv.full_name }}</div>
+{% if contact_items %}
+<div class="contact">{{ contact_items | map('inline') | join(' · ') }}</div>
+{% endif %}
+{% if cv.summary.strip() %}
+{{ section_title('Summary') }}
+<p>{{ cv.summary | inline }}</p>
+{% endif %}
+{% set groups = cv.skill_groups | selectattr('skills') | list %}
+{% if groups %}
+{{ section_title('Skills') }}
+{% for group in groups %}
+<p class="skill-group"><b>{{ group.category }}:</b> {{ group.skills | map('inline') | join(', ') }}</p>
+{% endfor %}
+{% endif %}
+{% if cv.experience %}
+{{ section_title('Experience') }}
+{% for exp in cv.experience %}
+<div class="entry">
+<p class="entry-head"><b>{{ exp.role }}</b> — {{ exp.company }}{% if exp.dates %} · <span class="dates">{{ exp.dates }}</span>{% endif %}</p>
+{% if exp.highlights %}
+<ul class="bullets">
+{% for item in exp.highlights %}
+<li>{{ item | inline }}</li>
+{% endfor %}
+</ul>
+{% endif %}
+</div>
+{% endfor %}
+{% endif %}
+{% if cv.projects %}
+{{ section_title('Projects') }}
+{% for project in cv.projects %}
+<div class="entry">
+<p class="entry-head"><b>{{ project.name }}</b> — {{ project.description | inline }}{% if project.link %} ({{ project.link | inline }}){% endif %}</p>
+</div>
+{% endfor %}
+{% endif %}
+{% if cv.education %}
+{{ section_title('Education') }}
+{% for edu in cv.education %}
+<div class="entry">
+<p class="entry-head"><b>{{ edu.degree }}</b> — {{ edu.institution }}{% if edu.dates %} · <span class="dates">{{ edu.dates }}</span>{% endif %}</p>
+{% if edu.details %}
+<p class="details">{{ edu.details | inline }}</p>
+{% endif %}
+</div>
+{% endfor %}
+{% endif %}
+{% if cv.certifications %}
+{{ section_title('Certifications') }}
+<ul class="bullets">
+{% for item in cv.certifications %}
+<li>{{ item | inline }}</li>
+{% endfor %}
+</ul>
+{% endif %}
+{% if cv.publications %}
+{{ section_title('Publications') }}
+<ul class="bullets">
+{% for item in cv.publications %}
+<li>{{ item | inline }}</li>
+{% endfor %}
+</ul>
+{% endif %}
+</body>
+</html>

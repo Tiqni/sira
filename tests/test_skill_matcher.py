@@ -9,7 +9,13 @@ from pydantic_ai.messages import ModelResponse, ToolCallPart
 from pydantic_ai.models.function import AgentInfo, DeltaToolCall, FunctionModel
 from pydantic_ai.models.test import TestModel
 
-from sira.models.agents.output import CV, JobAnalysis, SkillMatchResult, WorkExperience
+from sira.models.agents.output import (
+    CV,
+    JobAnalysis,
+    SkillGroup,
+    SkillMatchResult,
+    WorkExperience,
+)
 from sira.reporting.base import NullReporter, use_reporter
 
 pytestmark = pytest.mark.anyio
@@ -198,7 +204,7 @@ def _cv() -> CV:
     return CV(
         full_name="A",
         summary="Engineer who ran Kubernetes clusters and mentored juniors.",
-        skills=["Python"],
+        skill_groups=[SkillGroup(category="Skills", skills=["Python"])],
         experience=[
             WorkExperience(
                 company="Acme",

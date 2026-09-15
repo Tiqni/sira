@@ -17,8 +17,28 @@ output/                                   ← --output-dir (default ./output)
     └── resume_debug.md                   ← only with --debug
 ```
 
-The three resume files hold the same content in three formats. Markdown is the source;
-the PDF and DOCX are generated from it.
+The three resume files hold the same content. All three are rendered from the
+structured CV the writer produced; the PDF and DOCX share one template so they
+look the same.
+
+### Styles
+
+Pick a template with `--style` (default `modern`). Every style is single-column
+with no tables, so ATS (Applicant Tracking System) parsers read it top to bottom.
+
+| Style | Look |
+| --- | --- |
+| `modern` | Sans-serif, navy headings with a thin rule (default) |
+| `classic` | Serif, black uppercase headings — conservative |
+| `compact` | Sans-serif, teal headings, tight spacing — fits more on one page |
+
+```bash
+uv run sira tailor <JOB_URL> <RESUME_PATH> --style classic
+```
+
+The Markdown file uses the same section order: name and contact line, Summary,
+Skills (one bold category per line), Experience, Projects, Education,
+Certifications, Publications. Empty sections are omitted.
 
 ### Naming patterns
 
