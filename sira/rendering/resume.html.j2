@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html>
+<body>
+<div class="name">{{ cv.full_name }}</div>
+{% if contact_items %}
+<div class="contact">{{ contact_items | map('inline') | join(' · ') }}</div>
+{% endif %}
+{% if cv.summary.strip() %}
+<h2 class="section-title">Summary</h2>
+<p>{{ cv.summary | inline }}</p>
+{% endif %}
+{% set groups = cv.skill_groups | selectattr('skills') | list %}
+{% if groups %}
+<h2 class="section-title">Skills</h2>
+{% for group in groups %}
+<p class="skill-group"><b>{{ group.category }}:</b> {{ group.skills | map('inline') | join(', ') }}</p>
+{% endfor %}
+{% endif %}
+{% if cv.experience %}
+<h2 class="section-title">Experience</h2>
+{% for exp in cv.experience %}
+<div class="entry">
+<p class="entry-head"><b>{{ exp.role }}</b> — {{ exp.company }}{% if exp.dates %} · <span class="dates">{{ exp.dates }}</span>{% endif %}</p>
+{% if exp.highlights %}
+<ul class="bullets">
+{% for item in exp.highlights %}
+<li>{{ item | inline }}</li>
+{% endfor %}
+</ul>
+{% endif %}
+</div>
+{% endfor %}
+{% endif %}
+{% if cv.projects %}
+<h2 class="section-title">Projects</h2>
+{% for project in cv.projects %}
+<p class="entry-head"><b>{{ project.name }}</b> — {{ project.description | inline }}{% if project.link %} ({{ project.link | inline }}){% endif %}</p>
+{% endfor %}
+{% endif %}
+{% if cv.education %}
+<h2 class="section-title">Education</h2>
+{% for edu in cv.education %}
+<div class="entry">
+<p class="entry-head"><b>{{ edu.degree }}</b> — {{ edu.institution }}{% if edu.dates %} · <span class="dates">{{ edu.dates }}</span>{% endif %}</p>
+{% if edu.details %}
+<p class="details">{{ edu.details | inline }}</p>
+{% endif %}
+</div>
+{% endfor %}
+{% endif %}
+{% if cv.certifications %}
+<h2 class="section-title">Certifications</h2>
+<ul class="bullets">
+{% for item in cv.certifications %}
+<li>{{ item | inline }}</li>
+{% endfor %}
+</ul>
+{% endif %}
+{% if cv.publications %}
+<h2 class="section-title">Publications</h2>
+<ul class="bullets">
+{% for item in cv.publications %}
+<li>{{ item | inline }}</li>
+{% endfor %}
+</ul>
+{% endif %}
+</body>
+</html>
