@@ -29,6 +29,7 @@ uv run sira tailor <JOB_URL> <RESUME_PATH> [--model … --fast -v -d]
 uv run sira re-tailor <JOB_ID> "<RECOMMENDATIONS>"
 uv run sira resume <RUN_ID>              # continue a killed/crashed/failed run from its last checkpoint
 uv run sira runs [--limit N]             # list recent runs and their status
+uv run sira setup                        # download the Chromium browser Playwright drives (once)
 graphify update .                         # refresh the knowledge graph after code changes (AST-only, no API cost)
 ```
 
@@ -43,7 +44,7 @@ The flow spans several files; the order is **not** all inside the workflow:
 1. **`main.py`** (Typer CLI: `tailor`, `re-tailor`) — converts the resume (DOCX/PDF→Markdown via `utils/resume_converter.py`), resolves the original resume from memory (cache), **runs the job scraper**, then calls `ResumeTailorWorkflow.run()`. Scraping happens here, *before* the pipeline — not in the workflow.
 2. **`workflows/__init__.py`** (`ResumeTailorWorkflow`) — the 6-stage pipeline (Parser → Analyst → Writer → Reviewer → Auditor → Report) with the **Write→Review→Audit** retry loop. `CVDiff`, `GapAnalysis`, `match_score` and the verdict are computed in **pure Python** (`utils/cv_diff.py`) from per-skill verdicts; the only model call in that phase besides the report narrative is `skill_matcher_agent` (`workflows/skill_matching.py`), which says whether the CV covers each job skill and quotes the evidence.
 3. **`workflows/agents.py`** — every agent is a module-level `pydantic-ai` `Agent` singleton, plus all the run/model/quality-gate machinery. This is the file most changes touch.
-4. **`memory/`** — `ResumeMemoryService` over a SQLite repo (`files/resume_memory.sqlite3`); stores the original resume + each tailored output, and content-hash caches parsed CVs.
+4. **`memory/`** — `ResumeMemoryService` over a SQLite repo (`resume_memory.sqlite3` in the per-user data directory from `sira/paths.py`, `SIRA_DATA_DIR` overrides it); stores the original resume + each tailored output, and content-hash caches parsed CVs.
 5. **`models/agents/output.py`** — Pydantic v2 output types that are the contracts between stages (`CV`, `JobAnalysis`, `AuditResult`, `ReviewResult`, `FinalReport`, `ScrapedJobPosting`, `QualityCheckResult`).
 
 ### Model selection (subtle — spans `main.py` + `agents.py` + `workflows/`)
@@ -58,6 +59,10 @@ The flow spans several files; the order is **not** all inside the workflow:
 
 ### Reporting
 `run_agent` emits lifecycle/token events to the active `ProgressReporter` (installed via `use_reporter`): a Rich `LiveDashboard` by default, or `VerboseReporter` with `-v`. Reporter calls are best-effort and must never abort a run (`_safe_report`).
+
+## Releasing
+
+Merging to `main` runs `.github/workflows/release.yml`: commitizen bumps the version and opens a release PR; merging that PR tags, creates the GitHub Release, then `build` (wheel + sdist, smoke-tested in isolation) and `publish` upload to PyPI through Trusted Publishing (OIDC — no API token; the `pypi` GitHub environment and the publisher registered on pypi.org must both name `release.yml`). The sdist only carries `sira/`, `tests/`, and `CHANGELOG.md` (`[tool.hatch.build.targets.sdist]`).
 
 ## Conventions & gotchas
 

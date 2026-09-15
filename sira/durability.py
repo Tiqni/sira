@@ -16,8 +16,9 @@ from importlib import metadata
 
 from dbos import DBOS, DBOSConfig
 
+from sira.paths import dbos_db_url
+
 APP_NAME = "sira"
-DEFAULT_DATABASE_URL = "sqlite:///memory/dbos.sqlite3"
 DATABASE_URL_ENV = "SIRA_DBOS_DATABASE_URL"
 
 _active = False
@@ -36,8 +37,8 @@ def application_version() -> str:
 
 
 def database_url(override: str | None = None) -> str:
-    """Resolve the system database URL: argument, then env var, then default."""
-    return override or os.environ.get(DATABASE_URL_ENV) or DEFAULT_DATABASE_URL
+    """Resolve the system database URL: argument, then env var, then the data dir."""
+    return override or os.environ.get(DATABASE_URL_ENV) or dbos_db_url()
 
 
 def _ensure_sqlite_directory(url: str) -> None:

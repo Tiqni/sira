@@ -22,6 +22,7 @@ dependencies = [
     "markdown>=3.10",
     "markdown-pdf>=1.10",
     "markitdown[docx,pdf]>=0.1.0",
+    "platformdirs>=4",
     "playwright>=1.56.0",
     "pydantic-ai[dbos,groq,mistral,cohere,bedrock]>=2.43,<3",
     "python-docx>=1.1.0",
@@ -55,6 +56,13 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["sira"]
+
+# The source distribution carries the package and its tests only. Hatchling
+# always adds pyproject.toml, README.md and LICENSE; everything else in the
+# repository (docs site, CI, dev guides, cover image, lock file) is not part
+# of the release.
+[tool.hatch.build.targets.sdist]
+only-include = ["sira", "tests", "CHANGELOG.md"]
 
 [tool.uv]
 # The `xai` extra and the `dev` group cannot be installed together

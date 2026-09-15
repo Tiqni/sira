@@ -5,14 +5,14 @@ from importlib import metadata
 import pytest
 from dbos import DBOS
 
-from sira import durability
+from sira import durability, paths
 
 
 def test_build_config_defaults(monkeypatch):
     monkeypatch.delenv(durability.DATABASE_URL_ENV, raising=False)
     cfg = durability.build_config()
     assert cfg["name"] == "sira"
-    assert cfg["system_database_url"] == "sqlite:///memory/dbos.sqlite3"
+    assert cfg["system_database_url"] == paths.dbos_db_url()
     assert cfg["run_admin_server"] is False
     assert cfg["log_level"] == "CRITICAL"
     assert cfg["application_version"] == durability.application_version()

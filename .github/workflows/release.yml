@@ -131,3 +131,76 @@ jobs:
           skipIfReleaseExists: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # Building and publishing are separate jobs, as the uv docs recommend: only
+  # the publish job holds the PyPI credential (the id-token permission), so
+  # the build step cannot leak it.
+  build:
+    needs: tag-and-release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.13"
+
+      - name: Build the wheel and source distribution
+        run: uv build
+
+      - name: Check that the build carries the released version
+        run: |
+          VERSION=$(uv version --short)
+          test -f "dist/sira-$VERSION-py3-none-any.whl"
+          test -f "dist/sira-$VERSION.tar.gz"
+
+      # Install each distribution on its own, without the checkout, and make
+      # sure the CLI starts: catches a file missing from the package.
+      - name: Smoke test the wheel
+        run: uv run --isolated --no-project --with dist/*.whl -- sira --help
+
+      - name: Smoke test the source distribution
+        run: uv run --isolated --no-project --with dist/*.tar.gz -- sira --help
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: dist
+          path: dist/
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    # Trusted Publishing: PyPI accepts a short-lived token that GitHub issues
+    # for this repository + workflow + environment, so there is no secret.
+    # The publisher is registered on pypi.org under the project's
+    # "Publishing" settings and must name the `pypi` environment.
+    environment:
+      name: pypi
+      url: https://pypi.org/project/sira/
+    permissions:
+      id-token: write
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+    steps:
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+
+      - uses: actions/download-artifact@v8
+        with:
+          name: dist
+          path: dist/
+
+      # Signed statements that these files were built by this workflow;
+      # `uv publish` uploads them next to the wheel and sdist.
+      - name: Generate PEP 740 attestations
+        uses: astral-sh/attest-action@v0.0.6
+
+      - name: Publish to PyPI
+        run: uv publish --trusted-publishing always

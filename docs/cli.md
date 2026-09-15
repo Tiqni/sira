@@ -93,7 +93,7 @@ Behaviour by run state:
 | Aborted at a checkpoint | Forked at that checkpoint; the question is asked again. |
 | Started by another Sira version | Refused — start a new run. |
 
-Durability starts when the pipeline starts; resume conversion, the cache lookup, and job scraping run before it and are not checkpointed (a crash there means simply re-running `tailor`). Run state lives in `memory/dbos.sqlite3` (see the privacy note in the README); each Sira release invalidates older runs, and `resume` refuses them.
+Durability starts when the pipeline starts; resume conversion, the cache lookup, and job scraping run before it and are not checkpointed (a crash there means simply re-running `tailor`). Run state lives in `dbos.sqlite3` in the [data directory](memory.md#where-it-lives) (see the privacy note in the README); each Sira release invalidates older runs, and `resume` refuses them.
 
 ## `runs`
 
@@ -102,6 +102,20 @@ List recent runs with their status, job, start time, and duration.
 ```bash
 uv run sira runs [--limit N]
 ```
+
+## `setup`
+
+Download the Chromium browser the job scraper drives. Run it once after installing Sira
+and again after upgrading Playwright.
+
+```bash
+uv run sira setup
+```
+
+It runs `playwright install chromium` with the interpreter Sira itself runs under, so the
+browser build matches the installed Playwright version — and it works after
+`uv tool install sira` or `pipx install sira`, where the `playwright` executable is not on
+your `PATH`. Exits with code 1 if the download fails.
 
 ---
 

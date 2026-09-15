@@ -6,6 +6,7 @@ import hashlib
 import logging
 import os
 import re
+import subprocess
 import sys
 import uuid
 from datetime import date, datetime
@@ -28,6 +29,7 @@ from sira.models.agents.output import (
     FinalReport,
 )
 from sira.models.workflow import ResumeTailorResult, RunMetadata, TailorInputs
+from sira.paths import migrate_legacy_memory_db
 from sira.utils.markdown_writer import (
     generate_report_markdown,
     generate_resume,
@@ -59,6 +61,22 @@ from sira.tools.job_scraper import fetch_job_markdown
 
 logger = logging.getLogger(__name__)
 console = Console()
+
+
+def _open_memory_service() -> tuple[SQLiteResumeMemoryRepository, ResumeMemoryService]:
+    """Open the resume memory in the user data directory.
+
+    Releases before 1.5 kept the database in ``./memory``; a database found
+    there is moved into the data directory the first time it is opened.
+    """
+    moved = migrate_legacy_memory_db()
+    if moved is not None:
+        console.print(f"📦 Moved the resume memory from ./memory to {moved}")
+    repo = SQLiteResumeMemoryRepository()
+    service = ResumeMemoryService(repository=repo, parser=PydanticAIResumeParser())
+    return repo, service
+
+
 app = typer.Typer()
 
 # Default models used by the --fast speed preset.
@@ -425,9 +443,7 @@ async def _save_tailor_to_memory(
     continued run save its record even if the resume file has since moved.
     """
     try:
-        repo = SQLiteResumeMemoryRepository()
-        parser = PydanticAIResumeParser()
-        service = ResumeMemoryService(repository=repo, parser=parser)
+        repo, service = _open_memory_service()
 
         # Use converted markdown path for non-markdown resumes so
         # resolve_original_resume can read it as text.
@@ -662,9 +678,7 @@ async def _tailor_impl(
     content_hash = hashlib.sha256(resume_content.encode()).hexdigest()
     pre_parsed_cv: CV | None = None
     try:
-        repo = SQLiteResumeMemoryRepository()
-        parser = PydanticAIResumeParser()
-        service = ResumeMemoryService(repository=repo, parser=parser)
+        repo, service = _open_memory_service()
         resolved = await service.aresolve_original_resume(
             path=(converted_resume_path or resume_path_expanded)
         )
@@ -909,9 +923,7 @@ async def _re_tailor_impl(
         VerboseReporter(console=console) if verbose else LiveDashboard(console=console)
     )
 
-    repo = SQLiteResumeMemoryRepository()
-    parser = PydanticAIResumeParser()
-    service = ResumeMemoryService(repository=repo, parser=parser)
+    repo, service = _open_memory_service()
 
     tailored_record = repo.get_tailored_resume_by_id(job_id)
     if tailored_record is None:
@@ -1320,6 +1332,28 @@ def runs(
     """List recent tailoring runs and their status."""
     with durable_runtime():
         asyncio.run(_runs_impl(limit))
+
+
+@app.command()
+def setup() -> None:
+    """Install the Chromium browser that the job scraper drives.
+
+    Run once after installing Sira. The browser is a separate download from
+    the Python package and must match Sira's own `playwright` version, so it
+    is installed through the interpreter Sira runs under — the `playwright`
+    executable is not on PATH after `uv tool install` or `pipx install`.
+    """
+    console.print("⬇️  Installing Chromium for Playwright…")
+    completed = subprocess.run(
+        [sys.executable, "-m", "playwright", "install", "chromium"], check=False
+    )
+    if completed.returncode != 0:
+        console.print(
+            "[red]❌ Browser install failed. Re-run `sira setup`, or run "
+            "`playwright install chromium` in Sira's environment.[/red]"
+        )
+        raise typer.Exit(code=1)
+    console.print("✅ Chromium installed. You can now run `sira tailor`.")
 
 
 def run():

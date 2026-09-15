@@ -261,7 +261,7 @@ sira/memory/
 
 ### Key Behaviors
 
-- **Database**: SQLite at `files/resume_memory.sqlite3`
+- **Database**: SQLite at `resume_memory.sqlite3` in the per-user data directory (`sira/paths.py`; `SIRA_DATA_DIR` overrides it)
 - **Content-hash caching**: `ResumeMemoryService.resolve_original_resume()` hashes the resume file content. If the hash matches a previously parsed version AND the parser version matches, the stored `CV` JSON is deserialized directly — no AI call.
 - **Two variants**: `resolve_original_resume` (sync) and `aresolve_original_resume` (async). The CLI uses the async variant since it runs under `asyncio`.
 - **Source tracking**: Every resume source is stored with its absolute path and content hash. Multiple tailored resumes can link back to the same source.
@@ -327,7 +327,7 @@ sira.tailor (workflow, id = run id)
 - Parser and Analyst are child workflows because DBOS requires a deterministic step order inside one workflow; each child owns its own sequence, so they may run concurrently.
 - DBOS only continues a run under the same executor id and application version. Sira uses a fresh executor id per process, so a new `sira tailor` never silently picks up an old run; continuation is explicit (`sira resume`) and pinned to the installed Sira version.
 - Continuation (`sira/workflows/continuation.py`): interrupted runs are resumed in place; failed runs are forked from the failed step (or the start of a failed child workflow, or the last checkpoint when the user aborted), which creates a new run id with the earlier checkpoints copied.
-- The system database is SQLite at `memory/dbos.sqlite3` (`SIRA_DBOS_DATABASE_URL` overrides it). Post-processing (output files, memory save) stays outside the workflow and is repeated by `resume`.
+- The system database is SQLite at `dbos.sqlite3` in the per-user data directory (`sira/paths.py`; `SIRA_DBOS_DATABASE_URL` overrides it). Post-processing (output files, memory save) stays outside the workflow and is repeated by `resume`.
 - Every model request is now made in streaming mode (the durability capability attaches an event-stream handler), including non-interactive runs.
 
 ---

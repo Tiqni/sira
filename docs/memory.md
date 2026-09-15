@@ -6,13 +6,30 @@ the same place: your **original** resume.
 ## Where it lives
 
 ```
-memory/resume_memory.sqlite3
+<data dir>/resume_memory.sqlite3
 ```
 
-The path is relative to the directory you run `sira` from. The parent directory is
-created automatically on first use, and the file is in `.gitignore` — it is runtime
-data, not source. Nothing is uploaded anywhere; the database is a plain SQLite file on
-your machine.
+`<data dir>` is Sira's per-user data directory, so the same database is used from any
+working directory:
+
+| Platform | Default |
+|----------|---------|
+| macOS    | `~/Library/Application Support/sira` |
+| Linux    | `$XDG_DATA_HOME/sira` (`~/.local/share/sira`) |
+| Windows  | `%LOCALAPPDATA%\sira` |
+
+Set `SIRA_DATA_DIR` to use another directory. The DBOS checkpoint database
+(`dbos.sqlite3`, see [`resume`](cli.md#resume)) lives in the same place
+unless `SIRA_DBOS_DATABASE_URL` points elsewhere.
+
+The directory is created automatically on first use. Nothing is uploaded anywhere; the
+database is a plain SQLite file on your machine.
+
+!!! note "Upgrading from a release before 1.5"
+    Older releases wrote `memory/resume_memory.sqlite3` relative to the directory you
+    ran `sira` from. The first time Sira runs from a directory that has such a file, it
+    moves it into the data directory (unless a database already exists there) and prints
+    where it went.
 
 ## What it stores
 

@@ -11,6 +11,22 @@ os.environ.setdefault("OPENAI_API_KEY", "sk-test-dummy")
 models.ALLOW_MODEL_REQUESTS = False
 
 
+@pytest.fixture(autouse=True)
+def _isolated_data_dir(tmp_path, monkeypatch):
+    """Keep every test's runtime state out of the developer's real data dir.
+
+    The legacy location is relative to the working directory, and opening the
+    memory with its default path moves whatever is there. Redirect it into the
+    temp dir so a test can never move a real ``./memory`` database.
+    """
+    from sira import paths
+
+    monkeypatch.setenv(paths.DATA_DIR_ENV, str(tmp_path / "sira-data"))
+    monkeypatch.setattr(
+        paths, "LEGACY_MEMORY_DB_PATH", tmp_path / "memory" / "resume_memory.sqlite3"
+    )
+
+
 @pytest.fixture(params=["asyncio"])
 def anyio_backend() -> str:
     """Restrict anyio tests to asyncio backend (trio is not installed)."""

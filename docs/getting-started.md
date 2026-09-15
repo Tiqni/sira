@@ -13,6 +13,17 @@ environment to activate by hand.
 curl -LsSf https://astral.sh/uv/install.sh | sh
 ```
 
+!!! tip "Just want to use Sira?"
+    Install the released package instead of cloning:
+
+    ```bash
+    uv tool install sira    # or: pipx install sira
+    sira setup
+    ```
+
+    then continue at [step 4](#4-set-your-api-key), writing `sira` where the guide
+    writes `uv run sira`.
+
 ## 2. Clone and sync
 
 ```bash
@@ -31,8 +42,11 @@ their posting with JavaScript and return an almost-empty page to a plain HTTP re
 Playwright ships as a Python package, but the browser binary is a separate download:
 
 ```bash
-uv run playwright install chromium
+uv run sira setup
 ```
+
+`sira setup` runs `playwright install chromium` with the same interpreter Sira uses, so
+the browser build always matches the installed Playwright version.
 
 !!! warning "Skipping this step"
     Without it, the first `tailor` run fails while fetching the posting with an error

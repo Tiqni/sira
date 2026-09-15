@@ -140,7 +140,7 @@ The **Write → Review → Audit** inner loop: after the initial write, the revi
 - **Web Scraping**: Playwright (headless Chromium) in `fetch_job_markdown()`; `job_scraper_agent` only cleans the Markdown. Optional `guard` extra (transformers + torch) adds a local prompt-injection classifier.
 - **HTML→Markdown**: `html2text` and `markitdown` (multi-strategy fallback in `job_scraper_helpers.py`)
 - **Resume Conversion**: `markitdown` via `InputConverterRegistry` (DOCX/PDF → Markdown)
-- **Memory**: SQLite (`files/resume_memory.sqlite3`) with `ResumeMemoryService`
+- **Memory**: SQLite (`resume_memory.sqlite3` in the per-user data directory, see `sira/paths.py`) with `ResumeMemoryService`
 - **Formatting**: `ruff`
 
 ## Testing

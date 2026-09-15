@@ -5,6 +5,7 @@
 ```
 sira/                            # the Python package
 ├── main.py                      # Typer CLI: tailor + re-tailor. Scraping happens HERE.
+├── paths.py                     # per-user data directory (SIRA_DATA_DIR)
 ├── __main__.py                  # `python -m sira` entry point
 ├── workflows/
 │   ├── __init__.py              # ResumeTailorWorkflow — the 6-stage pipeline
@@ -49,7 +50,6 @@ tests/
 ```
 
 ```
-memory/resume_memory.sqlite3     # runtime database (gitignored, auto-created)
 output/                          # default output directory (gitignored)
 docs/                            # this site
 mkdocs.yml                       # site configuration and navigation
