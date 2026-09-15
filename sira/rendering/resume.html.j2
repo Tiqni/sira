@@ -35,7 +35,9 @@
 {% if cv.projects %}
 {{ section_title('Projects') }}
 {% for project in cv.projects %}
+<div class="entry">
 <p class="entry-head"><b>{{ project.name }}</b> — {{ project.description | inline }}{% if project.link %} ({{ project.link | inline }}){% endif %}</p>
+</div>
 {% endfor %}
 {% endif %}
 {% if cv.education %}
