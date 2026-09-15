@@ -11,6 +11,13 @@ from sira.rendering.templates import TemplateSpec
 
 
 def build_css(spec: TemplateSpec) -> str:
+    # MuPDF's Story engine silently ignores both `text-transform` and
+    # `letter-spacing` — they have no effect on the rendered PDF. They stay
+    # here to document intent and because they're harmless (and DOCX gets
+    # real uppercase/spacing via python-docx font properties in docx.py).
+    # The actual uppercasing for the PDF happens on the HTML *text* itself,
+    # in resume.html.j2's `section_title` macro (driven by `caps` — see
+    # html.py:render_html), so the PDF doesn't depend on CSS support for it.
     heading_extra = (
         "text-transform: uppercase; letter-spacing: 1pt;"
         if spec.heading_style == "caps"

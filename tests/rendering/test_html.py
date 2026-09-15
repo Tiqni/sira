@@ -7,7 +7,7 @@ from sira.models.agents.output import (
     WorkExperience,
 )
 from sira.rendering.html import render_html
-from sira.rendering.templates import MODERN
+from sira.rendering.templates import CLASSIC, MODERN
 
 
 def _cv(**overrides) -> CV:
@@ -79,3 +79,12 @@ def test_empty_sections_are_omitted():
 
 def test_no_tables_anywhere():
     assert "<table" not in render_html(_cv(), MODERN)
+
+
+def test_caps_style_uppercases_section_titles():
+    html = render_html(_cv(), CLASSIC)
+    assert '<h2 class="section-title">SUMMARY</h2>' in html
+    assert ">Summary</h2>" not in html
+
+    html = render_html(_cv(), MODERN)
+    assert '<h2 class="section-title">Summary</h2>' in html
