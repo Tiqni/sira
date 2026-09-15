@@ -38,7 +38,6 @@ def write_pdf(
         where = media_box + (margin, margin, -margin, -margin)
 
         buffer = io.BytesIO()
-        writer = pymupdf.DocumentWriter(buffer)
         positions: list = []
         page_num = 0
 
@@ -46,15 +45,15 @@ def write_pdf(
             elpos.page_num = page_num
             positions.append(elpos)
 
-        more = 1
-        while more:
-            page_num += 1
-            device = writer.begin_page(media_box)
-            more, _ = story.place(where)
-            story.element_positions(record, {})
-            story.draw(device)
-            writer.end_page()
-        writer.close()
+        with pymupdf.DocumentWriter(buffer) as writer:
+            more = 1
+            while more:
+                page_num += 1
+                device = writer.begin_page(media_box)
+                more, _ = story.place(where)
+                story.element_positions(record, {})
+                story.draw(device)
+                writer.end_page()
 
         buffer.seek(0)
         doc = pymupdf.Story.add_pdf_links(buffer, positions)
