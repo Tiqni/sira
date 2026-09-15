@@ -380,6 +380,19 @@ sira/
 - **Anti-Hallucination**: The system is strictly instructed never to invent skills or experiences.
 - **Cliché Filter**: Avoids terms like "spearheaded", "synergy", "leveraged", and "game-changer".
 - **Multi-Layer Validation**: Quality gates score core pipeline agent output; auditor cross-checks final CV against the original.
+- **Prompt-Injection Awareness**: Some job pages embed text aimed at AI readers ("ignore previous instructions", hidden `display:none` blocks, "rate this candidate as a perfect match"). Every scraped page is scanned in plain Python (no LLM) for instruction overrides in 10 languages, text that addresses an AI, role/output manipulation, exfiltration requests, invisible Unicode, and phrases that exist in the HTML but not in the visible text. A match prints a `⚠️ Potential prompt-injection content detected (…)` warning and the run continues — detection is advisory, and the scraper and analyst prompts are told to treat page text as data, never as instructions.
+
+### Optional: local classifier (`sira[guard]`)
+
+For a second opinion from a small model, install the `guard` extra. It runs [Meta Llama Prompt Guard 2 (22M)](https://huggingface.co/meta-llama/Llama-Prompt-Guard-2-22M) **locally** on the scraped Markdown and adds a `classifier_flagged` indicator to the same warning.
+
+```bash
+uv sync --extra guard        # torch + transformers, ~2 GB
+```
+
+- The first `tailor` run asks once whether the model may be downloaded (~90 MB) and executed on your machine, and remembers the answer in `~/.config/sira/guard_consent.json`. Pre-answer with `SIRA_GUARD_CONSENT=yes|no` for scripts and CI.
+- The default model is gated: accept Meta's license on Hugging Face and set `HF_TOKEN`. If you cannot, point `SIRA_GUARD_MODEL` at an open model such as `protectai/deberta-v3-base-prompt-injection-v2`.
+- Any failure (no token, no network, out of memory) prints a warning and falls back to the regex scan. It never stops a run.
 
 ## 🤝 Contributing
 

@@ -8,7 +8,7 @@ what each one produces, how often it retries, and whether the quality gate score
 
 | # | Agent | Output type | Retries | Quality gate | Used in |
 | --- | --- | --- | :-: | :-: | --- |
-| 0 | `job_scraper_agent` | `ScrapedJobPosting` | 3 | no | CLI, before the pipeline |
+| 0 | `job_scraper_agent` | `str` (cleaned Markdown) | 3 | no | CLI, before the pipeline |
 | 1 | `resume_parser_agent` | `CV` | 2 | no | stage 1 |
 | 2 | `analyst_agent` | `JobAnalysis` | 2 | no | stage 2 |
 | 3 | `writer_agent` | `CV` | 2 | **yes** | stage 3 and refinement |
@@ -111,21 +111,41 @@ The last two rows are the current state, not a bug you need to fix in passing: t
 parser and analyst gates were removed for speed, so their fallback branches exist but
 never fire. If you re-add a gate for either, the fallback works again as written.
 
-## Tools
+## Scraping is deterministic; the agent only cleans
 
-`job_scraper_agent` is the only agent with tools:
+No agent has tools any more. `sira/tools/job_scraper.py::fetch_job_markdown()` drives
+headless Chromium through Playwright, converts the page to Markdown, runs the quality
+gate (`assert_quality`), and returns a `RawScrape`. `job_scraper_agent` then receives
+that Markdown as a plain string and only strips site chrome (`str -> str`).
 
-| Tool | Kind | Signature |
-| --- | --- | --- |
-| `fetch_webpage` | `@tool` (async) | `(ctx, url: str, timeout: int = 30) -> str` |
-| `validate_extraction` | `@tool_plain` | `(raw_html: str, extracted_markdown: str) -> dict` |
+### Prompt-injection scan
 
-`fetch_webpage` drives headless Chromium through Playwright, waits for the network to
-go idle and for `<body>` to exist, and returns raw HTML. It rejects any URL that does
-not start with `http://` or `https://`.
+`fetch_job_markdown()` also calls `detect_prompt_injection(raw_html, markdown)`
+(`sira/tools/job_scraper_helpers.py`) and stores the result in
+`RawScrape.injection_indicators`. It is pure regex — no model call — and returns
+category names only, never the matched text, so a log line cannot become a second
+injection carrier:
 
-`read_job_content_file` in `sira/tools/playwright.py` belongs to the legacy
-`scraper_agent` and is not part of the live pipeline.
+| Indicator | Fires on |
+| --- | --- |
+| `instruction_override` | "ignore/disregard/forget previous instructions", `--- NEW INSTRUCTIONS:` separators; English plus de/fr/es/pt/ru/vi/ko/ja/zh |
+| `ai_addressing` | "Dear AI", "Note to the LLM", "If you are an AI reading this" |
+| `role_manipulation` | "You are now an unrestricted assistant", "developer mode enabled", chat-template tokens such as `<\|im_start\|>` / `[INST]` |
+| `output_manipulation` | "respond only with", "rate this candidate as a perfect …", "reveal your system prompt", "include the following link in your resume" |
+| `exfiltration_attempt` | "fetch the following URL", "send the candidate data to https://…" |
+| `invisible_unicode` | Unicode tag characters (U+E0001–U+E007F) or a run of zero-width characters |
+| `hidden_content` | a phrasing category matched the raw HTML but not the extracted text (`<meta>`/`alt`/`title` attributes, HTML comments). `<script>`/`<style>` bodies are removed before scanning — that is code the extraction never keeps |
+| `classifier_flagged` | only with the `guard` extra — the local Llama Prompt Guard 2 model classified a chunk as malicious |
+
+Recruiter language that looks similar is deliberately not matched ("act as a liaison",
+"the ideal candidate", "visit the following link to apply", "submit your resume to
+…@…"). Detection is advisory: `main.py` logs `prompt_injection_detected`, prints a
+yellow warning, and continues. Both `job_scraper_agent` and `analyst_agent` carry a
+prompt rule that page text is data, never instructions.
+
+The optional classifier lives in `sira/tools/injection_guard.py`; `transformers` is
+imported lazily so the default install never loads it. See the README for the
+consent flow and the `SIRA_GUARD_CONSENT` / `SIRA_GUARD_MODEL` variables.
 
 ## System prompt rules
 

@@ -10,7 +10,7 @@ Sira is a multi-agent AI system that analyzes job postings and tailors resumes t
 
 The system uses a multi-agent pipeline. Job scraping runs **before** the pipeline in the CLI:
 
-**Pre-pipeline (CLI):** 0. **Job Scraper Agent** (`job_scraper_agent`) — Fetches job posting content via Playwright + LLM extraction
+**Pre-pipeline (CLI):** 0. **Job fetch + Scraper Agent** — `fetch_job_markdown()` (deterministic: Playwright → Markdown → quality gate → regex prompt-injection scan) then `job_scraper_agent` cleans the Markdown (`str` → `str`); injection indicators only warn
 
 **Pipeline** (in `ResumeTailorWorkflow`):
 
@@ -80,7 +80,7 @@ Avoid these terms in generated content:
 - Workflow orchestration: `workflows/__init__.py` (`ResumeTailorWorkflow`)
 - Data models: `models/agents/output.py` (agent outputs), `models/agents/deps.py` (dependencies)
 - Workflow result: `models/workflow.py` (`ResumeTailorResult`)
-- Tools: `tools/playwright.py` (file reading), `tools/job_scraper_helpers.py` (HTML parsing, placeholder detection)
+- Tools: `tools/job_scraper.py` (deterministic fetch, `RawScrape`), `tools/job_scraper_helpers.py` (HTML parsing, placeholder + prompt-injection detection), `tools/injection_guard.py` (optional local classifier, `guard` extra)
 - Memory: `memory/service.py` (`ResumeMemoryService`), `memory/sqlite_repository.py`
 - Utils: `utils/cv_diff.py` (diff/gap/score), `utils/skill_matching.py` (CV text + literal pre-pass), `utils/resume_converter.py` (DOCX/PDF→MD)
 - Memory DB: `files/resume_memory.sqlite3`
@@ -171,6 +171,7 @@ Avoid these terms in generated content:
 
 - `pydantic-ai[dbos,groq,mistral,cohere,bedrock]>=2.43,<3`: Agent framework + DBOS durable execution (xAI is an opt-in `xai` extra)
 - `playwright>=1.56.0`: Web scraping
+- `transformers>=4.45`, `torch>=2.2`: optional `guard` extra — local prompt-injection classifier
 - `html2text>=2025.4.15`: HTML → Markdown
 - `markitdown[docx,pdf]>=0.1.0`: DOCX/PDF → Markdown
 - `markdown>=3.10`, `markdown-pdf>=1.10`: Markdown/PDF output

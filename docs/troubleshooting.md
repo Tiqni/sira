@@ -34,6 +34,24 @@ postings. It still fails when:
 | The page is slow | The default timeout is 30 seconds per navigation. A very slow page can exceed it; retry. |
 | The URL redirects to a search page | The posting has probably expired. |
 
+## `⚠️ Potential prompt-injection content detected in the job posting`
+
+The page contains text aimed at an AI reader — an instruction override, a hidden
+block, a request to rate the candidate highly — or a phrase that exists in the HTML
+but not in the visible text. The run continues; the warning lists only category
+names (see the agent reference for the full table). Read the tailored CV and report
+with extra care, and compare the requirements Sira extracted against the posting as
+a human sees it. False positives happen on security-engineering postings that discuss
+these attacks; the warning is advisory, nothing is blocked.
+
+## `⚠️ Prompt-injection classifier unavailable (…)`
+
+You installed the `guard` extra but the local model could not be loaded — usually a
+missing Hugging Face token for the gated default model, no network on first run, or
+not enough memory. Sira falls back to the regex scan. Fix the cause, or set
+`SIRA_GUARD_MODEL=protectai/deberta-v3-base-prompt-injection-v2` for an ungated model,
+or set `SIRA_GUARD_CONSENT=no` to silence the layer.
+
 ## `❌ Job posting scraped but content is empty`
 
 The page loaded, but nothing survived extraction. This normally means the posting body

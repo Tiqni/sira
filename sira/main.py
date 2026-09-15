@@ -6,6 +6,7 @@ import hashlib
 import logging
 import os
 import re
+import sys
 import uuid
 from datetime import date, datetime
 from pathlib import Path
@@ -53,6 +54,7 @@ from sira.workflows.agents import (
     set_quality_gate,
 )
 from sira.workflows.continuation import continue_run
+from sira.tools import injection_guard
 from sira.tools.job_scraper import fetch_job_markdown
 
 logger = logging.getLogger(__name__)
@@ -497,6 +499,86 @@ def _save_re_tailor_to_memory(
         return False
 
 
+def _ask_guard_consent(message: str) -> bool:
+    """One-time console question for the optional local classifier."""
+    console.print(f"\n{message}")
+    try:
+        answer = input("Enable the classifier? [y/N]: ").strip().lower()
+    except EOFError:
+        return False
+    return answer in {"y", "yes"}
+
+
+def _resolve_guard_consent() -> bool | None:
+    """Decide once whether the optional ``sira[guard]`` classifier may run.
+
+    Must be called BEFORE the live dashboard starts: the consent question uses
+    a blocking ``input()`` and a Rich Live redraw would overdraw the prompt.
+    Returns False when the extra is not installed.
+    """
+    if not injection_guard.is_installed():
+        return False
+    ask = _ask_guard_consent if sys.stdin.isatty() else None
+    consent = injection_guard.resolve_consent(ask=ask)
+    if consent is None:
+        logger.info("guard_classifier_skipped_unanswered")
+        console.print(
+            "[dim]ℹ️ The guard extra is installed but not enabled. Set "
+            f"{injection_guard.GUARD_CONSENT_ENV}=yes (or run once in a "
+            "terminal) to turn on the local prompt-injection classifier.[/dim]"
+        )
+    return consent
+
+
+def _classifier_indicators(markdown: str, consent: bool | None) -> tuple[str, ...]:
+    """Run the optional ``sira[guard]`` classifier on the scraped Markdown.
+
+    Returns ``("classifier_flagged",)`` or ``()``. Never raises: a declined or
+    unanswered consent, a model failure, or an unexpected error all degrade to
+    the regex-only result with (at most) a warning.
+    """
+    if not consent:
+        return ()
+    try:
+        return tuple(injection_guard.classify(markdown))
+    except injection_guard.GuardUnavailable as e:
+        logger.warning("guard_classifier_unavailable", extra={"error": str(e)})
+        console.print(
+            f"[yellow]⚠️ Prompt-injection classifier unavailable ({e}). "
+            "Continuing with the regex checks only.[/yellow]"
+        )
+        return ()
+    except Exception as e:
+        # Last resort: an advisory layer must never abort a run, and must not
+        # be reported as a scrape failure by the caller's broad except.
+        logger.warning("guard_classifier_error", extra={"error": str(e)})
+        console.print(
+            "[yellow]⚠️ Prompt-injection classifier failed unexpectedly "
+            f"({type(e).__name__}). Continuing with the regex checks only.[/yellow]"
+        )
+        return ()
+
+
+def _warn_if_prompt_injection(job_url: str, indicators: tuple[str, ...]) -> None:
+    """Warn (log + console) when the scraped page looks like a prompt injection.
+
+    Advisory only: the run continues. Only category names and the URL are
+    emitted — never the matched page text — so the log cannot become a second
+    injection carrier.
+    """
+    if not indicators:
+        return
+    logger.warning(
+        "prompt_injection_detected",
+        extra={"url": job_url, "indicators": list(indicators)},
+    )
+    console.print(
+        "[yellow]⚠️ Potential prompt-injection content detected in the job "
+        f"posting ({', '.join(indicators)}). Proceeding, but review the "
+        "tailored output carefully.[/yellow]"
+    )
+
+
 async def _tailor_impl(
     job_url: str,
     resume_path: str,
@@ -615,12 +697,20 @@ async def _tailor_impl(
     dashboard_ctx = (
         reporter if hasattr(reporter, "__enter__") else contextlib.nullcontext()
     )
+    # Ask before the Live dashboard takes over the terminal.
+    guard_consent = _resolve_guard_consent()
+
     with dashboard_ctx, use_reporter(reporter):
         install_global_reporter(reporter)
         try:
             logger.info("scraping_job_posting", extra={"url": job_url})
             try:
                 raw = await fetch_job_markdown(job_url)
+                _warn_if_prompt_injection(
+                    job_url,
+                    raw.injection_indicators
+                    + _classifier_indicators(raw.markdown_raw, guard_consent),
+                )
                 scrape_result = await run_agent(
                     job_scraper_agent,
                     raw.markdown_raw,

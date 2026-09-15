@@ -34,6 +34,11 @@ dependencies = [
 # `packaging<26`, which conflicts with the `commitizen` dev tool, so xAI
 # support is an opt-in extra: `uv sync --extra xai --no-dev`.
 xai = ["pydantic-ai[xai]>=2.43,<3"]
+# Optional local prompt-injection classifier (Meta Llama Prompt Guard 2) that
+# runs on top of the built-in regex scan. Heavy (torch + transformers) and the
+# default model is gated on Hugging Face, so it is opt-in:
+# `uv sync --extra guard`.
+guard = ["transformers>=4.45", "torch>=2.2"]
 
 [project.scripts]
 sira = "sira.main:run"
