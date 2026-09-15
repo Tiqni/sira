@@ -38,6 +38,9 @@ def test_docx_styles_follow_the_spec(tmp_path: Path, spec: TemplateSpec):
         )
         assert rfonts.get(qn("w:ascii")) == spec.docx_font
 
+    # A section heading must never end a page on its own (issue #21).
+    assert doc.styles["Heading 2"].paragraph_format.keep_with_next is True
+
 
 def test_docx_document_order_and_text(tmp_path: Path):
     cv = make_cv().model_copy(

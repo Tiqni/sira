@@ -331,6 +331,13 @@ blocks the other two. One `TemplateSpec` per style (`modern`, `classic`, `compac
 drives both `css.py` (the PDF stylesheet) and `docx.py` (the DOCX styler), so the two
 outputs cannot drift apart.
 
+**Section headings never end a page alone.** The DOCX uses Word's `keep_with_next` on
+`Heading 2`. MuPDF ignores every CSS `avoid` rule, so `pdf.py` lays the page out, reads
+the recorded element positions (each section is `<h2 id="section-<slug>">` plus a
+`<div id="section-<slug>-body">`), and when a body opens on a later page than its
+heading it forces `page-break-before: always` on that heading and lays out again
+(capped at four passes; one extra pass is the norm).
+
 ---
 
 ## Durable Execution

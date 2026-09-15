@@ -105,6 +105,8 @@ def _apply_styles(doc, spec: TemplateSpec) -> None:
     _set_bottom_border(heading, spec.heading_hex)
     heading.paragraph_format.space_before = Pt(spec.section_gap_pt)
     heading.paragraph_format.space_after = Pt(spec.item_gap_pt)
+    # Word's native "keep with next": a heading never ends a page alone.
+    heading.paragraph_format.keep_with_next = True
     heading.font.all_caps = spec.heading_style == "caps"
     if spec.heading_style == "caps":
         _set_letter_spacing(heading, 20)  # 1pt, same as the CSS letter-spacing
