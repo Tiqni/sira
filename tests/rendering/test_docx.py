@@ -79,6 +79,22 @@ def test_docx_document_order_and_text(tmp_path: Path):
     assert hyperlinks == ["https://t.io"]
 
 
+def test_docx_bold_inside_link_text_becomes_a_bold_hyperlink_run(tmp_path: Path):
+    cv = make_cv().model_copy(
+        update={"certifications": ["[**CKAD:** Certified Kubernetes](https://c.io)"]}
+    )
+    out = tmp_path / "r.docx"
+    write_docx(cv, MODERN, out)
+    doc = Document(str(out))
+    paragraph = next(p for p in doc.paragraphs if "Certified Kubernetes" in p.text)
+    hyperlink_runs = paragraph._p.findall(".//" + qn("w:hyperlink") + "/" + qn("w:r"))
+    texts = [r.find(qn("w:t")).text for r in hyperlink_runs]
+    bold = [r.find(qn("w:rPr")).find(qn("w:b")) is not None for r in hyperlink_runs]
+    assert texts == ["CKAD:", " Certified Kubernetes"]
+    assert bold == [True, False]
+    assert "**" not in paragraph.text
+
+
 def test_docx_failure_raises_render_error(tmp_path: Path):
     blocker = tmp_path / "file"
     blocker.write_text("not a directory")

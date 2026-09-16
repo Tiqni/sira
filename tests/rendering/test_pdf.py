@@ -150,3 +150,24 @@ def test_sweep_range_really_crosses_the_page_boundary(spec: TemplateSpec):
         and first[-1] == "Experience"
     ]
     assert orphaned, f"{spec.name}: sweep range no longer crosses the page boundary"
+
+
+def test_long_link_text_wraps_inside_the_page_margins(tmp_path: Path):
+    # A certification whose whole text is a link must wrap like plain text;
+    # a nowrap link is clipped at the right margin (seen on a real resume).
+    long_cert = (
+        "[**Courses:** Supervised Machine Learning; Advanced Learning Algorithms "
+        "— DeepLearning.AI. Senior Engineer to Lead — Maven, Sep 2025]"
+        "(https://www.coursera.org/account/accomplishments/verify/KDJWHF4LHSL3)"
+    )
+    cv = make_cv().model_copy(update={"certifications": [long_cert]})
+    out = tmp_path / "r.pdf"
+    write_pdf(render_html(cv, MODERN), build_css(MODERN), MODERN, out)
+    with pymupdf.open(out) as doc:
+        page = doc[0]
+        right_margin = page.rect.width - MODERN.margin_mm * 72 / 25.4
+        words = page.get_text("words")  # (x0, y0, x1, y1, word, …)
+        assert "Sep 2025" in page.get_text()
+        assert all(w[2] <= right_margin + 1 for w in words), (
+            "text drawn past the right margin"
+        )

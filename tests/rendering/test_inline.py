@@ -62,3 +62,21 @@ def test_runs_round_trip_the_same_cases():
 def test_plain_text_is_one_run():
     assert inline_markdown_to_runs("plain") == [Run("plain")]
     assert inline_markdown_to_runs("") == []
+
+
+def test_emphasis_inside_link_text_is_parsed(subtests):
+    # Real resumes write "[**Sira**](url)" and "[**CKAD:** Certified …](url)".
+    with subtests.test("html"):
+        assert inline_markdown_to_html("see [**Sira**](https://x.io) now") == (
+            'see <a href="https://x.io"><b>Sira</b></a> now'
+        )
+        assert inline_markdown_to_html("[**CKAD:** Certified `k8s`](https://c.io)") == (
+            '<a href="https://c.io"><b>CKAD:</b> Certified <code>k8s</code></a>'
+        )
+    with subtests.test("runs carry the href on every piece"):
+        assert inline_markdown_to_runs("[**CKAD:** Certified](https://c.io)") == [
+            Run("CKAD:", bold=True, href="https://c.io"),
+            Run(" Certified", href="https://c.io"),
+        ]
+    with subtests.test("unsafe scheme still renders plain text, emphasis kept"):
+        assert inline_markdown_to_html("[**x**](javascript:alert(1))") == "<b>x</b>"

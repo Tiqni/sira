@@ -30,9 +30,11 @@ body {{
   line-height: {spec.line_height};
   color: {spec.text_hex};
 }}
-/* nowrap keeps a link on one line, so a long contact line wraps at the
-   separators instead of inside a URL. */
-a {{ color: {spec.accent_hex}; text-decoration: none; white-space: nowrap; }}
+a {{ color: {spec.accent_hex}; text-decoration: none; }}
+/* Contact links stay on one line so the contact line wraps at its separators
+   instead of inside a URL. Body links (certifications, projects) must still
+   wrap, or long link text is clipped at the margin. */
+.contact a {{ white-space: nowrap; }}
 code {{ font-family: monospace; font-size: {spec.base_pt - 0.5}pt; }}
 .name {{
   font-size: {spec.name_pt}pt;
