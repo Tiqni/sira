@@ -11,14 +11,14 @@ Sira is a multi-agent AI system that analyzes job postings and tailors resumes t
 ```
 ┌──────────┐    ┌──────────┐    ┌──────────┐    ┌──────────┐    ┌──────────┐    ┌──────────┐
 │  RESUME  │    │   JOB    │    │    CV    │    │ REVIEWER │    │ AUDITOR  │    │  REPORT  │
-│  PARSER  │───▶│ ANALYST  │───▶│  WRITER  │───▶│  (x3)    │───▶│          │───▶│GENERATOR │
+│  PARSER  │───▶│ ANALYST  │───▶│  WRITER  │───▶│          │───▶│          │───▶│GENERATOR │
 │          │    │          │    │          │    │          │    │          │    │          │
 │ CV JSON  │    │ Job JSON │    │ Tailored │    │  Review  │    │  Audit   │    │  Final   │
 │          │    │          │    │ CV JSON  │    │  Scores  │    │  Result  │    │  Report  │
 └──────────┘    └──────────┘    └──────────┘    └──────────┘    └──────────┘    └──────────┘
      ▲                ▲               │                                  │
      │                │               │          ◀── RETRY LOOP ──       │
-     │                │               ▼          (up to 3 attempts)      │
+     │                │               ▼          (--write-attempts)      │
      │                │         ┌──────────┐                            │
      │                │         │  QUALITY  │◀─────── score < threshold  │
      │                │         │   GATE    │         triggers retry     │
@@ -38,7 +38,9 @@ The system runs a **6-stage sequential pipeline** in `ResumeTailorWorkflow`:
 5. **AUDITING_CV** — Validate for hallucinations and AI clichés
 6. **GENERATING_REPORT** — Compile self-review report
 
-Stages 3-5 form the **Write → Review → Audit inner loop**: after the initial write, the reviewer assesses quality and the writer refines (up to 3 review iterations). The auditor then checks the final draft. If the audit fails, the entire Write → Review → Audit loop retries (up to 3 write attempts). The Report phase **always runs**, even on audit failure.
+Stages 3-5 form the **Write → Review → Audit inner loop**: after the initial write, the reviewer assesses quality and the writer refines (up to `--review-iterations`, default 1). The auditor then checks the final draft. If the audit fails, the entire Write → Review → Audit loop retries (up to `--write-attempts`, default 2). The Report phase **always runs**, even on audit failure.
+
+On a cold cache, stages 1 and 2 run concurrently as two DBOS child workflows (see [Durable Execution](#durable-execution)).
 
 ---
 
@@ -61,22 +63,22 @@ Stages 3-5 form the **Write → Review → Audit inner loop**: after the initial
 - **Output**: `CV` (`full_name`, `contact` [`ContactInfo`: email, phone, location, links], `summary`, `skill_groups` [`SkillGroup`: category, skills], `experience`, `education` [`Education`: degree, institution, dates, details], `projects` [`Project`: name, description, link], `certifications`, `publications`; `cv.skills` is a read-only flattened property, not a schema field)
 - **Key Rules**: Preserve ALL hyperlinks in `[text](url)` format. Never add or modify information. For senior resumes, expect 40+ skills. One entry per skill (no separate version or spelling variants); team, company, product and job-title names are not skills.
 - **Post-processing**: `utils/skill_cleanup.py::clean_skill_groups` runs on every parsed CV (before it is cached) and again on the original and tailored CVs inside the workflow. It collapses variants that differ only by case, separators or a trailing version (`Python 3.13+` → `Python`) and merges `X (ABC)` with `X` when both exist (the acronym form is kept). It never merges aliases (`Go`/`Golang`) or word forms — that would need a dictionary and could drop real content. Pure Python, idempotent.
-- **Retries**: 5
-- **Quality Gate**: Yes — validated by `_validate_resume_parser`
+- **Retries**: 2
+- **Quality Gate**: No — the gate was removed for speed; the parse is cached by content hash instead. `_parser_qs` still exists and the workflow reads it as a fallback, but nothing writes to it.
 
 ### 2. Job Analyst (`analyst_agent`)
 
 - **Responsibility**: Analyze raw job posting text and extract structured job requirements. Identifies core requirements (not "nice-to-haves") and hidden ATS keywords.
 - **Output**: `JobAnalysis` (job_title, company_name, summary, hard_skills, soft_skills, key_responsibilities, keywords_to_target)
-- **Retries**: 5
-- **Quality Gate**: Yes — validated by `_validate_analyst`
+- **Retries**: 2
+- **Quality Gate**: No — removed for speed, like the parser. `_analyst_qs` is read as a fallback but never written.
 
 ### 3. CV Writer (`writer_agent`)
 
 - **Responsibility**: Rewrite the CV to target the Job Analysis using ONLY content from the original CV. Rephrase and reorganize but never invent skills or experiences. Groups relevant skills at the top.
 - **Output**: `CV`
 - **Key Rules**: Only use skills/experiences from original CV. Rephrase existing content to align with job keywords. Avoid AI clichés. Preserve ALL hyperlinks.
-- **Retries**: 5
+- **Retries**: 2
 - **Quality Gate**: Yes — validated by `_validate_writer`
 - **Also used**: For the refinement loop (review-based improvements)
 
@@ -93,7 +95,7 @@ Stages 3-5 form the **Write → Review → Audit inner loop**: after the initial
 - **Responsibility**: Compare original vs. tailored CV. Validate: no hallucinations (no new skills/companies/roles), no AI clichés, all hyperlinks preserved, proper job targeting.
 - **Output**: `AuditResult` (passed bool, hallucination_score 0-10, ai_cliche_score 0-10, issues list, feedback_summary)
 - **Pass Criteria**: Hallucination score ≤ 2, AI cliché score ≤ 3, all hyperlinks preserved
-- **Retries**: 5
+- **Retries**: 2
 - **Quality Gate**: Yes — validated by `_validate_auditor`
 
 ### 6. Skill Matcher (`skill_matcher_agent`)
@@ -117,7 +119,7 @@ Stages 3-5 form the **Write → Review → Audit inner loop**: after the initial
 
 | Agent                       | Output Type          | Quality Gate | Status                                                     |
 | --------------------------- | -------------------- | :----------: | ---------------------------------------------------------- |
-| `cover_letter_writer_agent` | `str`                |     Yes      | Defined but **not wired** into the main workflow.          |
+| `cover_letter_writer_agent` | `str`                |     Yes      | Defined but **not wired** into the main workflow. `retries=2`. |
 | `quality_gate_agent`        | `QualityCheckResult` |     N/A      | Shared validator; scores any pipeline agent's output 0–10. |
 
 ---
@@ -172,7 +174,8 @@ All models are defined in `sira/models/agents/output.py` using Pydantic v2.
 ```
 1. CLI (main.py)
    ├── Reads resume file → converts DOCX/PDF to Markdown via InputConverterRegistry
-   ├── Scrapes job URL via job_scraper_agent → job_posting_markdown
+   ├── fetch_job_markdown(url) (Playwright → Markdown → assert_quality → injection scan)
+   │   └── job_scraper_agent strips site chrome → job_posting_markdown (str)
    └── ResumeMemoryService.aresolve_original_resume (hash-based cache check)
        └── Pre-parsed CV if cache hit, None if miss
 
@@ -182,9 +185,9 @@ All models are defined in `sira/models/agents/output.py` using Pydantic v2.
    ├── ANALYZING_JOB: job markdown → analyst_agent → JobAnalysis JSON
    ├── WRITING_CV: CV + JobAnalysis → writer_agent → tailored CV JSON
    │   └── REVIEWING_CV: tailored CV → reviewer_agent → ReviewResult
-   │       └── If needs_improvement: writer_agent refines (up to 3 iterations)
+   │       └── If needs_improvement: writer_agent refines (up to --review-iterations, default 1)
    ├── AUDITING_CV: original CV + tailored CV → auditor_agent → AuditResult
-   │   └── If failed: retry WRITING → REVIEWING → AUDITING (up to 3 write attempts)
+   │   └── If failed: retry WRITING → REVIEWING → AUDITING (up to --write-attempts, default 2)
    └── GENERATING_REPORT:
        ├── compute_cv_diff(original, tailored) → CVDiff (pure Python, no LLM)
        ├── match_skills(original, job): literal pre-pass → skill_matcher_agent (one call) → {skill: SkillMatch}
@@ -216,22 +219,24 @@ All models are defined in `sira/models/agents/output.py` using Pydantic v2.
 
 - **Shared validator**: A single `quality_gate_agent` scores all gated agents' output, not per-agent custom validation code.
 - **Decorator pattern**: Each quality-gated agent has an `@output_validator` async function that calls the quality gate.
-- **Threshold**: Score ≥ 9 = pass. Score < 9 = raise `ModelRetry` with improvements.
+- **Threshold**: advisory. The output is scored once; `ModelRetry` (with the gate's improvement list) is raised only when the score is below `QUALITY_GATE_THRESHOLD` — `--gate-threshold`, default 6. `--no-quality-gate` skips the scoring call entirely.
 - **Fallback**: `_QualityState` per-agent holds `last_output`. On `UnexpectedModelBehavior` (retries exhausted), the fallback is used.
-- **Retry counts**: Quality gate itself has `retries=2`. Pipeline agents have `retries=5`. Job scraper has `retries=3`.
+- **Retry counts** (set inline per `Agent(...)`, not uniform): quality gate, parser, analyst, writer, auditor, cover-letter writer `retries=2`; reviewer and report `retries=5`; job scraper and skill matcher `retries=3`.
 
 ### Gated Agents
 
 | Agent                       | Validator Function              | Fallback State |
 | --------------------------- | ------------------------------- | -------------- |
-| `resume_parser_agent`       | `_validate_resume_parser`       | `_parser_qs`   |
-| `analyst_agent`             | `_validate_analyst`             | `_analyst_qs`  |
 | `writer_agent`              | `_validate_writer`              | `_writer_qs`   |
 | `auditor_agent`             | `_validate_auditor`             | `_auditor_qs`  |
 | `cover_letter_writer_agent` | `_validate_cover_letter_writer` | `_cover_qs`    |
 
+`_parser_qs` and `_analyst_qs` still exist and are read by the workflow's fallback branches, but no validator writes to them since the parser and analyst gates were removed. Re-adding either gate makes the fallback work again as written.
+
 ### Ungated Agents
 
+- `resume_parser_agent` — gate removed for speed; the content-hash cache makes the parse cheap to repeat.
+- `analyst_agent` — gate removed for speed.
 - `reviewer_agent` — Output drives refinement loop; quality is implicitly validated by the auditor later.
 - `report_agent` — Produces narrative; score, verdict and gaps are computed in Python.
 - `skill_matcher_agent` — Shape-validated by `_validate_skill_matches`; a wrong answer degrades to literal matching.
@@ -365,7 +370,7 @@ sira.tailor (workflow, id = run id)
 
 ## CLI
 
-Entry point: `sira/main.py` — Typer app, console script `sira`
+Entry point: `sira/main.py` — Typer app, console script `sira`. Five subcommands: `tailor`, `re-tailor`, `resume`, `runs`, `setup`.
 
 ### Subcommands
 
@@ -383,6 +388,13 @@ uv run sira tailor JOB_URL RESUME_PATH [OPTIONS]
 | `--debug` / `-d`        | FLAG | `False`                      | Save converted resume, show content hashes                        |
 | `--output-pattern`      | TEXT | `{company_name}-{job_title}` | Subdirectory name template                                        |
 | `--resume-name-pattern` | TEXT | `{company_name}-{full_name}` | Resume file base name template                                    |
+| `--style`               | ENUM | `modern`                     | Resume template for the PDF and DOCX: `modern`, `classic`, `compact` |
+| `--fast`                | FLAG | `False`                      | Speed preset: gate threshold 5, mechanical stages on `openai:gpt-5-nano`, `--model` (or `openai:gpt-5-mini`) as the strong tier. Loops stay at the defaults below. |
+| `--write-attempts`      | INT  | `2`                          | Max writer attempts in the write → review → audit loop            |
+| `--review-iterations`   | INT  | `1`                          | Max reviewer iterations per write attempt                         |
+| `--quality-gate` / `--no-quality-gate` | FLAG | on              | Enable the advisory quality gate                                  |
+| `--gate-threshold`      | INT  | `6`                          | Re-run a gated agent only when its score is below this            |
+| `--interactive` / `-i`  | FLAG | `False`                      | Pause at quality checkpoints (audit failure, weak match); skipped when stdin is not a TTY |
 
 Template variables: `{company_name}`, `{job_title}`, `{full_name}`, `{timestamp}`
 
@@ -400,12 +412,36 @@ All options from `tailor` plus:
 
 **Edge case**: When the original resume file no longer exists on disk but a source record is stored, the CLI prints an error and instructs the user to re-provide `--resume-path`.
 
+#### `resume` — Continue an interrupted or failed run
+
+```
+uv run sira resume RUN_ID [--verbose] [--style …]
+```
+
+Continues the DBOS run named by `RUN_ID` (printed by `tailor` / `re-tailor`; not the Job ID). Interrupted runs resume in place; failed runs are forked into a new run id. Post-processing (output files, memory save) is repeated. See [Durable Execution](#durable-execution).
+
+#### `runs` — List recent runs
+
+```
+uv run sira runs [--limit N]
+```
+
+#### `setup` — Install the browser
+
+```
+uv run sira setup
+```
+
+Runs `playwright install chromium` with Sira's own interpreter, so it works after `uv tool install sira` / `pipx install sira` where the `playwright` executable is not on `PATH`.
+
 ### Execution Flow
 
-Both commands are synchronous wrappers (`def`) that call `asyncio.run()` on async implementation functions:
+The commands are synchronous wrappers (`def`) that call `asyncio.run()` on async implementation functions:
 
 - `tailor` → `asyncio.run(_tailor_impl(...))`
 - `re_tailor` → `asyncio.run(_re_tailor_impl(...))`
+- `resume` → `asyncio.run(_resume_impl(...))`
+- `runs` → `asyncio.run(_runs_impl(...))`
 
 ---
 
@@ -436,7 +472,7 @@ Both commands are synchronous wrappers (`def`) that call `asyncio.run()` on asyn
 
 ## Key Design Decisions
 
-1. **Shared Quality Gate**: One `quality_gate_agent` validates all pipeline agents via role-specific scoring criteria, rather than per-agent custom validation code.
+1. **Shared Quality Gate**: One `quality_gate_agent` scores every gated agent (writer, auditor, and the unwired cover-letter writer) via role-specific scoring criteria, rather than per-agent custom validation code.
 
 2. **Python-Computed Metrics**: `GapAnalysis`, `match_score` and `overall_recommendation` are computed in `cv_diff.py` from per-skill verdicts. The only model involvement is the skill matcher's yes/no-with-evidence per skill; the report agent only writes prose.
 
@@ -446,12 +482,14 @@ Both commands are synchronous wrappers (`def`) that call `asyncio.run()` on asyn
 
 5. **Fallback State Pattern**: Each quality-gated agent stores its `last_output` in a module-level `_QualityState` instance. On quality gate exhaustion, the fallback is used rather than crashing.
 
-6. **Inner Loop with Outer Retry**: The Write → Review refinement loop (up to 3 iterations) is nested inside the Write → Audit retry loop (up to 3 attempts). This allows both fine-tuning and broader corrections.
+6. **Inner Loop with Outer Retry**: The Write → Review refinement loop (`--review-iterations`, default 1) is nested inside the Write → Audit retry loop (`--write-attempts`, default 2). This allows both fine-tuning and broader corrections.
 
 7. **Job Fingerprint Dedup**: Tailored resumes are keyed by a truncated SHA-256 fingerprint (first 32 hex chars of `{job_url}:{job_title}`), preventing duplicate entries for the same job applied multiple times.
 
 8. **Pre-Parsed CV Bypass**: The workflow accepts an optional `pre_parsed_cv` parameter. When provided (from cache), the Resume Parser stage is skipped entirely, saving AI calls.
 
-9. **Streaming via Verbose Mode**: `run_agent()` has a `verbose` flag that streams `TextPartDelta` and `ThinkingPartDelta` events to console via Rich.
+9. **Streaming via the reporter**: `run_agent()` emits lifecycle and token events to the active `ProgressReporter` (`sira/reporting/`); `VerboseReporter` (`--verbose`) prints the `TextPartDelta` / `ThinkingPartDelta` stream, `LiveDashboard` (default) shows a Rich panel. The `verbose` parameter on `run_agent()` is retained only for call-site compatibility.
 
 10. **CLI runs under asyncio**: All async implementation functions use `asyncio.run()` from synchronous Typer command wrappers.
+
+11. **Durable by default**: the pipeline is one DBOS workflow, so every model request is a checkpointed step and a killed or failed run can be continued with `sira resume` (see [Durable Execution](#durable-execution)).

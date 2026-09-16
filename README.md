@@ -169,7 +169,7 @@ Many providers offer OpenAI-compatible APIs. PydanticAI supports these via the `
 
 ## 🏃 Usage
 
-The CLI uses **positional arguments** (not interactive prompts). Two commands are available:
+The CLI uses **positional arguments** (not interactive prompts). Five commands are available: `tailor`, `re-tailor`, `resume`, `runs`, and `setup` (the browser download shown under [Installation](#-installation)).
 
 ### `tailor` — Run the full workflow
 
@@ -191,6 +191,8 @@ uv run sira tailor <JOB_URL> <RESUME_PATH> [OPTIONS]
 - `--interactive` / `-i` — Pause at quality checkpoints (audit failure, weak match) and ask whether to continue, give feedback and retry, or quit. Skipped automatically when stdin is not a terminal.
 - `--output-pattern TEMPLATE` — Template for job-specific subdirectory name (default: `{company_name}-{job_title}`)
 - `--resume-name-pattern TEMPLATE` — Template for resume file base name (default: `{company_name}-{full_name}`)
+- `--style modern|classic|compact` — Template for the PDF and DOCX (default: `modern`); see [View Results](#view-results)
+- `--fast`, `--write-attempts`, `--review-iterations`, `--quality-gate/--no-quality-gate`, `--gate-threshold` — see [Live progress & speed](#live-progress--speed)
 
 ### Example
 
@@ -222,6 +224,8 @@ uv run sira re-tailor <JOB_ID> <RECOMMENDATIONS> [OPTIONS]
 - `--interactive` / `-i` — Pause at quality checkpoints (audit failure, weak match) and ask whether to continue, give feedback and retry, or quit. Skipped automatically when stdin is not a terminal.
 - `--output-pattern TEMPLATE` — Template for job-specific subdirectory name (default: `{company_name}-{job_title}`)
 - `--resume-name-pattern TEMPLATE` — Template for resume file base name (default: `{company_name}-{full_name}`)
+- `--style modern|classic|compact` — Template for the PDF and DOCX (default: `modern`)
+- The same speed and quality flags as `tailor` (`--fast`, `--write-attempts`, …)
 
 > **💡 Tip:** If the original resume file no longer exists on disk when running `re-tailor`, you must provide `--resume-path` to point to the current location of your resume.
 
@@ -264,7 +268,7 @@ By default a **live progress dashboard** is shown in the terminal, updating as e
 
 | Flag | Default | Description |
 |------|---------|-------------|
-| `--fast` | off | Speed preset: trims loops to 1 write + 1 review and enables faster model tier for mechanical agents |
+| `--fast` | off | Speed preset: keeps the default loops (2 write × 1 review), lowers the gate threshold to 5, and puts the mechanical stages (Parser, Analyst, Reviewer, Quality Gate, Skill Matcher, Scraper) on `openai:gpt-5-nano`; `--model` (or `openai:gpt-5-mini`) becomes the strong tier. Always needs `OPENAI_API_KEY` for the fast tier. |
 | `--write-attempts N` | `2` | Maximum writer attempts in the write → review → audit outer loop |
 | `--review-iterations N` | `1` | Maximum reviewer iterations per write attempt |
 | `--quality-gate` / `--no-quality-gate` | on | Enable or disable the advisory quality gate |
@@ -364,10 +368,13 @@ Full detail: [Agent reference](https://tiqni.github.io/sira/agents/).
 ```
 sira/
 ├── sira/         # Main Python package
-│   ├── main.py                # CLI entry point (Typer: tailor + re-tailor)
+│   ├── main.py                # CLI entry point (Typer: tailor, re-tailor, resume, runs, setup)
+│   ├── durability.py          # DBOS runtime setup (durable_runtime, checkpoint DB URL)
 │   ├── workflows/             # Workflow orchestration and agent definitions
-│   │   ├── __init__.py        # ResumeTailorWorkflow class
-│   │   └── agents.py          # All agent definitions + quality gate validators
+│   │   ├── __init__.py        # ResumeTailorWorkflow class + the sira.tailor DBOS workflow
+│   │   ├── agents.py          # All agent definitions + quality gate validators
+│   │   ├── continuation.py    # sira resume: resume interrupted runs, fork failed ones
+│   │   └── skill_matching.py  # match_skills: literal pre-pass → skill_matcher_agent → fallback
 │   ├── paths.py               # Per-user data directory (SIRA_DATA_DIR)
 │   ├── models/                # Pydantic data models
 │   │   ├── agents/            # Agent output types (CV, JobAnalysis, AuditResult, etc.)
@@ -380,9 +387,11 @@ sira/
 │   │   ├── repository.py      # Abstract repository interface
 │   │   ├── sqlite_repository.py  # SQLite implementation
 │   │   └── service.py         # Orchestration service
+│   ├── reporting/             # Progress reporters (LiveDashboard, VerboseReporter)
 │   ├── tools/                 # Playwright scraping, HTML parsing helpers
-│   │   ├── playwright.py      # File I/O tool for agents
-│   │   └── job_scraper_helpers.py  # HTML→MD parsers, placeholder detection
+│   │   ├── job_scraper.py     # fetch_job_markdown: Playwright → Markdown → quality check → injection scan
+│   │   ├── job_scraper_helpers.py  # HTML→MD parsers, placeholder + prompt-injection detection
+│   │   └── injection_guard.py # Optional local classifier (sira[guard] extra) + consent flow
 │   ├── rendering/
 │   │   ├── __init__.py       # render_resume(cv, dir, base_name, style) → .md/.pdf/.docx
 │   │   ├── errors.py         # RenderError
@@ -395,16 +404,19 @@ sira/
 │   │   └── markdown.py       # CV → Markdown
 │   └── utils/                 # Markdown writer, resume conversion, CV diff
 │       ├── cv_diff.py         # Pure-Python CV diff, gap analysis, match score
+│       ├── skill_matching.py  # render_cv_text + literal skill pre-pass (no model calls)
 │       ├── skill_cleanup.py   # Collapse duplicate skill variants
 │       ├── markdown_writer.py # generate_report_markdown
 │       ├── resume_converter.py  # DOCX/PDF → Markdown conversion
 │       └── validate_inputs.py
 ├── tests/                     # Test suite
 │   ├── memory/                # Memory layer tests
-│   ├── workflows/             # Workflow integration tests
+│   ├── rendering/             # PDF/DOCX/Markdown rendering tests
+│   ├── reporting/             # Reporter tests
+│   ├── workflows/             # Workflow, continuation, loop-config tests
 │   ├── conftest.py            # Pytest fixtures (disables real LLM calls)
 │   └── factories.py           # Test data factories
-├── docs/                      # Additional documentation
+├── docs/                      # The documentation site (MkDocs)
 ├── output/                    # Default output directory for generated files
 ├── Makefile                   # Command shortcuts
 ├── pyproject.toml             # Project configuration and dependencies

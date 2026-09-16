@@ -33,7 +33,7 @@ uv run sira setup                        # download the Chromium browser Playwri
 graphify update .                         # refresh the knowledge graph after code changes (AST-only, no API cost)
 ```
 
-Tests never hit a real LLM: `tests/conftest.py` sets `models.ALLOW_MODEL_REQUESTS = False` and a dummy `OPENAI_API_KEY`. Async tests use `pytest-anyio` (`@pytest.mark.anyio`). CI (`.github/workflows/ci.yml`) runs `ruff check`, `ruff format --check`, and pytest with coverage on every PR to `main`. There are no pre-commit hooks, so run `uv run ruff check . && uv run ruff format --check . && uv run pytest` yourself before pushing. (Note: CI currently pipes pytest through `tee`, which masks the exit code — a green CI check does not guarantee tests passed; read the run log.)
+Tests never hit a real LLM: `tests/conftest.py` sets `models.ALLOW_MODEL_REQUESTS = False` and a dummy `OPENAI_API_KEY`. Async tests use `pytest-anyio` (`@pytest.mark.anyio`). CI (`.github/workflows/ci.yml`) runs `ruff check`, `ruff format --check`, and pytest with coverage on every PR to `main`. There are no pre-commit hooks, so run `uv run ruff check . && uv run ruff format --check . && uv run pytest` yourself before pushing.
 
 **Worktrees**: `AGENTS.md` asks that feature work happen in an isolated git worktree, keeping `main` pristine. Commit/push only when the user asks.
 
@@ -41,7 +41,7 @@ Tests never hit a real LLM: `tests/conftest.py` sets `models.ALLOW_MODEL_REQUEST
 
 The flow spans several files; the order is **not** all inside the workflow:
 
-1. **`main.py`** (Typer CLI: `tailor`, `re-tailor`) — converts the resume (DOCX/PDF→Markdown via `utils/resume_converter.py`), resolves the original resume from memory (cache), **runs the job scraper**, then calls `ResumeTailorWorkflow.run()`. Scraping happens here, *before* the pipeline — not in the workflow. After the workflow, `_write_outputs` renders the files through `sira/rendering/render_resume` (`--style modern|classic|compact`; one `TemplateSpec` drives both the PDF CSS and the DOCX styles).
+1. **`main.py`** (Typer CLI: `tailor`, `re-tailor`, `resume`, `runs`, `setup`) — converts the resume (DOCX/PDF→Markdown via `utils/resume_converter.py`), resolves the original resume from memory (cache), **runs the job scraper**, then calls `ResumeTailorWorkflow.run()`. Scraping happens here, *before* the pipeline — not in the workflow. After the workflow, `_write_outputs` renders the files through `sira/rendering/render_resume` (`--style modern|classic|compact`; one `TemplateSpec` drives both the PDF CSS and the DOCX styles).
 2. **`workflows/__init__.py`** (`ResumeTailorWorkflow`) — the 6-stage pipeline (Parser → Analyst → Writer → Reviewer → Auditor → Report) with the **Write→Review→Audit** retry loop. `CVDiff`, `GapAnalysis`, `match_score` and the verdict are computed in **pure Python** (`utils/cv_diff.py`) from per-skill verdicts; the only model call in that phase besides the report narrative is `skill_matcher_agent` (`workflows/skill_matching.py`), which says whether the CV covers each job skill and quotes the evidence.
 3. **`workflows/agents.py`** — every agent is a module-level `pydantic-ai` `Agent` singleton, plus all the run/model/quality-gate machinery. This is the file most changes touch.
 4. **`memory/`** — `ResumeMemoryService` over a SQLite repo (`resume_memory.sqlite3` in the per-user data directory from `sira/paths.py`, `SIRA_DATA_DIR` overrides it); stores the original resume + each tailored output, and content-hash caches parsed CVs.
@@ -70,7 +70,7 @@ Merging to `main` runs `.github/workflows/release.yml`: commitizen bumps the ver
 - **Retry counts vary per agent** and are set inline in `agents.py` (don't assume a single value — the older docs that claim a uniform `retries=5` are stale).
 - **Ollama** requires `OLLAMA_BASE_URL` (e.g. `http://localhost:11434/v1`); pydantic-ai 2.x has no default. Cloud models (`ollama:…:cloud`) route through the local daemon after `ollama signin`.
 - `utils/validate_inputs.py` and the Makefile `run`/`make run` target are **deprecated/broken** — use `uv run sira …`.
-- `cover_letter_writer_agent` and `scraper_agent` exist but are **not wired into the workflow** (`job_scraper_agent` is the one the CLI uses).
+- `cover_letter_writer_agent` exists but is **not wired into the workflow**. `job_scraper_agent` is the scraper the CLI uses (the old tool-based `scraper_agent` was removed).
 - `re-tailor` reuses the stored job posting (no re-scrape); if the original resume file is gone from disk, pass `--resume-path`.
 - **CV schema changes** must bump `_PARSER_VERSION` in `sira/memory/parser.py` — the memory cache re-parses on a version mismatch.
 - **Durable execution (DBOS)**: `sira.workflows.tailor_workflow` is the DBOS workflow; every agent has `DBOSDurability`, so a model request inside it is a checkpointed step. Rules: define `@DBOS.workflow`/`@DBOS.step` functions at module level (registered before `durable_runtime()` launches); never interleave two step sequences in one workflow (`asyncio.gather` over agent runs is forbidden — use child workflows); run-time models must be strings; anything non-deterministic that affects control flow goes in a step (the checkpoint prompt is one). Tests get one DBOS runtime for the session from `tests/conftest.py`.

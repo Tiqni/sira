@@ -4,12 +4,14 @@
 
 ```
 sira/                            # the Python package
-├── main.py                      # Typer CLI: tailor + re-tailor. Scraping happens HERE.
+├── main.py                      # Typer CLI: tailor, re-tailor, resume, runs, setup. Scraping happens HERE.
 ├── paths.py                     # per-user data directory (SIRA_DATA_DIR)
+├── durability.py                # DBOS runtime: durable_runtime(), checkpoint DB URL
 ├── __main__.py                  # `python -m sira` entry point
 ├── workflows/
-│   ├── __init__.py              # ResumeTailorWorkflow — the 6-stage pipeline
+│   ├── __init__.py              # ResumeTailorWorkflow — the 6-stage pipeline, as the sira.tailor DBOS workflow
 │   ├── agents.py                # every agent, plus model/quality-gate machinery
+│   ├── continuation.py          # sira resume: resume interrupted runs, fork failed ones
 │   └── skill_matching.py        # match_skills: pre-pass → skill judge → fallback
 ├── models/
 │   ├── agents/
@@ -27,8 +29,9 @@ sira/                            # the Python package
 │   ├── dashboard.py             # LiveDashboard (Rich); degrades in a non-TTY
 │   └── verbose.py               # VerboseReporter (--verbose)
 ├── tools/
-│   ├── playwright.py            # read_job_content_file (legacy agent tool)
-│   └── job_scraper_helpers.py   # HTML→Markdown, placeholder detection, cleanup
+│   ├── job_scraper.py           # fetch_job_markdown: Playwright → Markdown → assert_quality → injection scan
+│   ├── job_scraper_helpers.py   # HTML→Markdown, placeholder + prompt-injection detection, cleanup
+│   └── injection_guard.py       # optional local classifier (sira[guard] extra) + consent flow
 ├── rendering/
 │   ├── __init__.py       # render_resume(cv, dir, base_name, style) → .md/.pdf/.docx
 │   ├── errors.py         # RenderError
@@ -75,15 +78,18 @@ sequenceDiagram
     participant U as You
     participant CLI as main.py
     participant MEM as ResumeMemoryService
+    participant FETCH as fetch_job_markdown()
     participant SCR as job_scraper_agent
-    participant WF as ResumeTailorWorkflow
+    participant WF as ResumeTailorWorkflow (DBOS)
 
     U->>CLI: sira tailor URL RESUME
     CLI->>CLI: convert DOCX/PDF to Markdown
     CLI->>CLI: apply_model_override(--model)
     CLI->>MEM: resolve original resume (cache by content hash)
-    CLI->>SCR: scrape the posting
-    SCR-->>CLI: ScrapedJobPosting
+    CLI->>FETCH: fetch the posting (Playwright, no model)
+    FETCH-->>CLI: RawScrape (Markdown + injection indicators)
+    CLI->>SCR: strip site chrome
+    SCR-->>CLI: cleaned posting Markdown (str)
     CLI->>WF: run(resume text, posting Markdown)
     WF-->>CLI: ResumeTailorResult
     CLI->>MEM: store tailored resume + audit + posting
@@ -132,8 +138,10 @@ that a display bug can never abort a pipeline run.
 
 Four independent mechanisms reduce end-to-end latency. `--fast` turns on all four.
 
-1. **Parallel parse and analyse.** On a cold cache, stages 1 and 2 run concurrently via
-   `asyncio.gather`.
+1. **Parallel parse and analyse.** On a cold cache, stages 1 and 2 run concurrently as
+   two DBOS child workflows (`DBOS.start_workflow_async`), each owning its own step
+   sequence. Not `asyncio.gather` — interleaving two agent runs inside one DBOS
+   workflow breaks checkpoint replay.
 2. **Advisory quality gate.** One scoring pass, and a retry only below the threshold —
    not a loop until perfect. Parser and Analyst are not gated at all.
 3. **Trimmed loops.** Defaults are 2 write attempts × 1 review iteration, adjustable
@@ -153,7 +161,8 @@ Four independent mechanisms reduce end-to-end latency. `--fast` turns on all fou
 | Change how progress is displayed | `sira/reporting/` |
 | Change how the resume is rendered, or add a style | `sira/rendering/` |
 | Change how the report file is written | `sira/utils/markdown_writer.py` |
-| Change scraping or HTML extraction | `sira/workflows/agents.py` + `sira/tools/job_scraper_helpers.py` |
+| Change scraping or HTML extraction | `sira/tools/job_scraper.py` (fetch) + `sira/tools/job_scraper_helpers.py` (parsing) + the `job_scraper_agent` prompt in `sira/workflows/agents.py` |
+| Change how runs are resumed or forked | `sira/workflows/continuation.py`, `sira/durability.py` |
 
 Most changes land in `workflows/agents.py`. It is the largest and most central file.
 
@@ -161,5 +170,11 @@ Most changes land in `workflows/agents.py`. It is the largest and most central f
 
 - `sira/utils/validate_inputs.py` and the `run` target in the `Makefile` are
   **deprecated and broken**. Use `uv run sira …`.
-- `cover_letter_writer_agent` and `scraper_agent` exist in `agents.py` but are **not
-  wired into the workflow**. `job_scraper_agent` is the one the CLI uses.
+- `cover_letter_writer_agent` exists in `agents.py` but is **not wired into the
+  workflow**. `job_scraper_agent` is the scraper the CLI uses; the old tool-based
+  `scraper_agent` was removed.
+- `ScrapedJobPosting` in `models/agents/output.py` is legacy; the live path uses the
+  `RawScrape` dataclass from `tools/job_scraper.py` and passes plain Markdown into the
+  workflow.
+- `_parser_qs` and `_analyst_qs` in `agents.py` are read by fallback branches but never
+  written — the parser and analyst gates were removed for speed.

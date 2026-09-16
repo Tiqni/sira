@@ -81,9 +81,9 @@ flowchart TD
 Two things invalidate the cache, and both should:
 
 - **You edited your resume.** The content hash changes, so the old parse is stale.
-- **The parser itself changed.** `parser_version` (currently `1.1.0`) is bumped when
-  the parsing prompt or output shape changes, so old parses are not silently reused
-  under new rules.
+- **The parser itself changed.** `parser_version` (`_PARSER_VERSION` in
+  `sira/memory/parser.py`, currently `2.1.0`) is bumped when the parsing prompt or the
+  `CV` schema changes, so old parses are not silently reused under new rules.
 
 ## Rules the memory layer enforces
 
@@ -116,10 +116,15 @@ that row rather than creating a second one.
 
 ## Starting over
 
-The database is a single file. To wipe all stored resumes and history:
+The database is a single file in the [data directory](#where-it-lives). To wipe all
+stored resumes and history on macOS:
 
 ```bash
-rm -rf memory/
+rm ~/Library/Application\ Support/sira/resume_memory.sqlite3*
 ```
 
-The next run recreates the schema and treats your resume as new.
+Use the matching path on Linux (`~/.local/share/sira/`) or Windows
+(`%LOCALAPPDATA%\sira\`), or `$SIRA_DATA_DIR` if you set it. The `*` also removes the
+`-wal` and `-shm` sidecar files SQLite keeps next to the database. The next run
+recreates the schema and treats your resume as new. `dbos.sqlite3` in the same directory
+holds the run checkpoints; delete it too if you want to forget past runs.
