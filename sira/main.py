@@ -853,7 +853,7 @@ def tailor(
     fast: bool = typer.Option(
         False,
         "--fast",
-        help="Speed preset: trimmed loops + fast models for mechanical agents",
+        help="Speed preset: lower gate threshold + fast models for mechanical agents",
     ),
     write_attempts: int = typer.Option(
         2, help="Max writer attempts in the write/audit loop"
@@ -1126,7 +1126,7 @@ def re_tailor(
     fast: bool = typer.Option(
         False,
         "--fast",
-        help="Speed preset: trimmed loops + fast models for mechanical agents",
+        help="Speed preset: lower gate threshold + fast models for mechanical agents",
     ),
     write_attempts: int = typer.Option(
         2, help="Max writer attempts in the write/audit loop"

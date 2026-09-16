@@ -45,8 +45,8 @@ flowchart TD
     CLI["--model / --fast on the command line"] --> AMO["apply_model_override()"]
     AMO --> G["Module globals:<br/>MODEL_NAME, FAST_MODEL, STRONG_MODEL"]
     G --> RM{"resolve_model(agent_label)"}
-    RM -->|"label is Parser, Analyst,<br/>Reviewer, Quality Gate"| FAST["FAST tier"]
-    RM -->|"label is Writer, Auditor,<br/>Report, Scraper"| STRONG["STRONG tier"]
+    RM -->|"label is Parser, Analyst, Reviewer,<br/>Quality Gate, Skill Matcher, Scraper"| FAST["FAST tier"]
+    RM -->|"label is Writer, Auditor,<br/>Report, Cover Letter Writer"| STRONG["STRONG tier"]
     RM -->|"no override configured"| DEF["None -> the agent's own<br/>import-time default model"]
     FAST --> RUN["agent.run(model=...)"]
     STRONG --> RUN
@@ -65,8 +65,11 @@ Two consequences worth knowing:
 
 | Tier | Stages |
 | --- | --- |
-| **fast** | Resume Parser, Job Analyst, Reviewer, Quality Gate |
-| **strong** | CV Writer, Auditor, Report, Job Scraper, Cover Letter Writer |
+| **fast** | Resume Parser, Job Analyst, Reviewer, Quality Gate, Skill Matcher, Job Scraper |
+| **strong** | CV Writer (initial and refine), Auditor, Report, Cover Letter Writer |
+
+The mapping is `_AGENT_TIERS` in `sira/workflows/agents.py`; an unknown label falls back
+to the strong tier.
 
 `--fast` sets the fast tier to `openai:gpt-5-nano` and the strong tier to `openai:gpt-5-mini`,
 or to your `--model` value if you passed one.
@@ -123,7 +126,8 @@ Many services expose an OpenAI-compatible API. PydanticAI reaches them through t
 Roughly in order of impact:
 
 1. `--no-quality-gate` — removes the scoring call that follows each gated agent.
-2. `--fast` — fewer loop iterations plus a cheaper tier for mechanical stages.
+2. `--fast` — a cheaper tier for mechanical stages plus a lower gate threshold (5). It
+   leaves the loops at their defaults (2 write attempts × 1 review iteration).
 3. `--write-attempts 1 --review-iterations 0` — a single pass with no refinement.
 4. A cheaper `--model`.
 

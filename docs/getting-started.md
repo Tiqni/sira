@@ -101,8 +101,10 @@ your resume covers, which skills you are genuinely missing, and an overall verdi
 *Strong Match*, *Partial Match*, or *Weak Match*. See
 [Output and reports](output.md) for a full walkthrough.
 
-The run also prints the report to your terminal, along with a **job ID** — a UUID you
-need if you later want to re-run the tailoring with feedback.
+The run also prints the report to your terminal, along with two identifiers: a
+**job ID** — a UUID you need if you later want to re-run the tailoring with feedback —
+and a **run ID**, which `sira resume` uses to continue a run that was killed or failed
+(see the [CLI reference](cli.md#resume)).
 
 ## 7. Iterate on the result
 
@@ -121,7 +123,7 @@ tailored one.
 A default run makes a lot of model calls. Two flags cut that down:
 
 ```bash
-# Speed preset: fewer loop iterations, cheaper model for mechanical stages
+# Speed preset: cheaper model for mechanical stages, lower gate threshold
 uv run sira tailor <JOB_URL> <RESUME_PATH> --fast
 
 # Or pick a cheaper model outright

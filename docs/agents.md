@@ -18,7 +18,6 @@ what each one produces, how often it retries, and whether the quality gate score
 | 7 | `report_agent` | `ReportNarrative` | 5 | no | stage 6 |
 | — | `quality_gate_agent` | `QualityCheckResult` | 2 | n/a | validator for gated agents |
 | — | `cover_letter_writer_agent` | `str` | 2 | **yes** | **not wired into the workflow** |
-| — | `scraper_agent` | `JobAnalysis` | 5 | no | legacy, **not used by the CLI** |
 
 !!! note "Retry counts are per agent"
     They are set inline at each `Agent(...)` call site. Do not assume a single value
@@ -30,7 +29,7 @@ what each one produces, how often it retries, and whether the quality gate score
 flowchart TD
     RAW["Resume text<br/>(md / docx / pdf -> Markdown)"] --> P["resume_parser_agent"]
     URL["Job posting URL"] --> SC["job_scraper_agent"]
-    SC --> JP["ScrapedJobPosting"]
+    SC --> JP["cleaned posting Markdown (str)"]
     JP --> A["analyst_agent"]
 
     P --> CV0["CV (original)"]
@@ -200,13 +199,16 @@ async def run_agent(
     usage: RunUsage | None = None,
     usage_limits: UsageLimits | None = None,
     model: str | None = None,
+    deps: Any = None,
 ) -> AgentRunResult: ...
 ```
 
-It resolves the per-agent model tier through `resolve_model(agent_label)`, emits
-lifecycle and token events to the active progress reporter, and — with `verbose=True` —
-streams `TextPartDelta` and `ThinkingPartDelta` events to the console, falling back to
-a non-streaming call if streaming fails.
+It resolves the per-agent model tier through `resolve_model(agent_label)` and emits
+lifecycle and token events to the active progress reporter, which decides what to show
+(`VerboseReporter` prints the `TextPartDelta` / `ThinkingPartDelta` stream; the
+dashboard shows stage progress). The `verbose` parameter is retained only for call-site
+compatibility — the reporter drives streaming. `deps` is forwarded to `agent.run()`
+(the skill matcher uses it to pass the expected skill list to its validator).
 
 `agent_label` is not cosmetic: it selects the model tier and names the stage in the
 dashboard. Passing the wrong label puts an agent on the wrong model.

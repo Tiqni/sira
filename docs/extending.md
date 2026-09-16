@@ -38,6 +38,7 @@ In `sira/workflows/agents.py`, next to the others:
 ```python
 my_agent = Agent(
     _DEFAULT_MODEL,          # the shared model object, NOT a model string
+    name="sira.my_agent",    # DBOS binds step names to this; keep it unique
     model_settings=MODEL_SETTINGS,
     system_prompt=(
         "You are a…\n"
@@ -46,8 +47,17 @@ my_agent = Agent(
     ),
     output_type=MyAgentOutput,
     retries=2,
+    capabilities=[_durability()],   # every model request becomes a checkpointed step
 )
 ```
+
+!!! warning "`name` and `capabilities=[_durability()]` are not optional"
+    The pipeline runs inside a DBOS workflow. `_durability()` returns pydantic-ai's
+    `DBOSDurability` capability, which turns each model request into a checkpointed
+    step so `sira resume` can replay it instead of calling the model again. An agent
+    without it still works, but a crash after it ran means paying for that call twice —
+    and DBOS needs the `name` to label the step. Outside a workflow (the job scraper,
+    the memory cache parser) the capability is transparent.
 
 !!! danger "Never pass a model string here"
     `Agent("openai:gpt-5-mini", …)` makes pydantic-ai build the provider's HTTP client
@@ -115,6 +125,16 @@ except UnexpectedModelBehavior:
 
 Never let an exhausted gate end the run. Degraded output beats no output.
 
+!!! danger "DBOS rules for anything you add to the workflow"
+    - Define `@DBOS.workflow` / `@DBOS.step` functions at **module level**, so they are
+      registered before `durable_runtime()` launches.
+    - Never interleave two step sequences inside one workflow — `asyncio.gather` over
+      agent runs is forbidden. To run agents concurrently, start each as a child
+      workflow (`DBOS.start_workflow_async`), as the parser and analyst do.
+    - Anything non-deterministic that affects control flow (random choice, user input,
+      the clock) goes in a `@DBOS.step`, so a replay sees the recorded value.
+    - Run-time model names must be strings, because they are stored in the checkpoint.
+
 ### 6. Test it
 
 - A unit test for the output model's validation rules.
@@ -139,7 +159,9 @@ flowchart TD
 ```
 
 The two commands duplicate their option lists. Adding a flag to only one of them is the
-usual mistake.
+usual mistake. If the flag affects post-processing (like `--style`, which decides how
+the output files are rendered), add it to `resume` as well, since `resume` repeats the
+post-processing for a continued run.
 
 ```python
 @app.command()

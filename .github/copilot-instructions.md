@@ -17,34 +17,36 @@ The system uses a multi-agent pipeline. Job scraping runs **before** the pipelin
 1. **Resume Parser Agent** — Parses Markdown/DOCX/PDF resumes into structured `CV` data
 2. **Job Analyst Agent** — Extracts structured job requirements from scraped markdown
 3. **CV Writer Agent** — Tailors CV to match job requirements
-4. **Reviewer Agent** — Scores CV quality and suggests improvements (up to 3 iterations per write)
+4. **Reviewer Agent** — Scores CV quality and suggests improvements (`--review-iterations` per write, default 1)
 5. **Auditor Agent** — Validates for hallucinations and AI clichés (failed audit → retry from Writer)
 6. **Report Generator Agent** — Compiles self-review report with CVDiff and gap analysis
 
-The **Write → Review → Audit inner loop**: Write → Review (up to 3 iterations) → Audit. If audit fails, the entire loop retries from Write (up to 3 write attempts).
+The **Write → Review → Audit inner loop**: Write → Review (`--review-iterations`, default 1) → Audit. If audit fails, the entire loop retries from Write (`--write-attempts`, default 2). On a cold cache the Parser and Analyst run concurrently as DBOS child workflows.
 
 **Bonus (not wired)**: 7. **Cover Letter Writer Agent** — Defined but not integrated into the main workflow.
 
 ### Quality Gate System
 
-Every core pipeline agent has an `@output_validator` that calls the `quality_gate_agent` to score output 0–10. Score < 9 triggers `ModelRetry` with corrective feedback. On quality gate exhaustion (`UnexpectedModelBehavior` is caught), the system falls back to the last available output stored in a `_QualityState` instance (`_parser_qs`, `_analyst_qs`, `_writer_qs`, `_auditor_qs`, `_cover_qs`) — graceful degradation instead of fatal failure.
+The gated agents — `writer_agent`, `auditor_agent`, and the unwired `cover_letter_writer_agent` — have an `@output_validator` that calls the `quality_gate_agent` to score output 0–10. The gate is advisory: a score below `--gate-threshold` (default 6) triggers `ModelRetry` with corrective feedback; `--no-quality-gate` disables it. The parser and analyst are **not** gated (removed for speed; the parse is cached by content hash). On quality gate exhaustion (`UnexpectedModelBehavior` is caught), the system falls back to the last available output stored in a `_QualityState` instance (`_writer_qs`, `_auditor_qs`, `_cover_qs`; `_parser_qs` and `_analyst_qs` exist but are never written) — graceful degradation instead of fatal failure.
 
 ### Technology Stack
 
 - **Framework**: `pydantic-ai` for agent orchestration
 - **LLM**: OpenAI GPT (configurable; default `MODEL_NAME = "openai:gpt-5-mini"` at module level in `agents.py`)
 - **Models**: Pydantic v2 for structured outputs
-- **Tools**: Playwright for web scraping
+- **Tools**: Playwright for web scraping (`fetch_job_markdown()` in `tools/job_scraper.py`)
+- **Durable execution**: DBOS via `pydantic-ai[dbos]` — every agent carries `capabilities=[_durability()]`; `sira/durability.py` starts the runtime, `workflows/continuation.py` resumes or forks runs
 
 ## Coding Guidelines
 
 ### Agent Development
 
 - All agents must use structured `output_type` from `models.agents.output`
-- Retries vary by role: quality gate uses `retries=2`, scraper uses `retries=3`, pipeline agents use `retries=5`
+- Retries vary by agent and are set inline at each `Agent(...)`: quality gate, parser, analyst, writer, auditor, cover-letter writer `retries=2`; reviewer and report `retries=5`; job scraper and skill matcher `retries=3`
+- Every agent must be constructed with `_DEFAULT_MODEL` (never a model string) and `capabilities=[_durability()]`, so its model requests are checkpointed DBOS steps
 - System prompts must be explicit about avoiding AI clichés
 - Always validate that agents don't hallucinate information
-- Pipeline agents use `@output_validator` decorators that call `quality_gate_agent` for scoring
+- Gated agents (writer, auditor) use `@output_validator` decorators that call `quality_gate_agent` for scoring
 - Quality gate validators store last output in `_QualityState` instances for fallback on exhaustion
 
 ### Data Models
@@ -97,7 +99,9 @@ Avoid these terms in generated content:
 - Memory layer: `tests/memory/test_service.py`, `tests/memory/test_sqlite_repository.py`
 - Workflow integration: `tests/workflows/test_resume_tailor_workflow.py`
 - Verbose mode: `tests/test_verbose_agent.py`
-- Use demo files from `files/` for testing
+- Durability and continuation: `tests/test_durability.py`, `tests/workflows/test_durable_workflow.py`, `tests/workflows/test_continuation.py`, `tests/test_cli_resume.py`
+- Rendering: `tests/rendering/`
+- Build test data with the builders in `tests/factories.py`; there is no checked-in demo-resume directory
 
 ## Code Style
 
@@ -117,7 +121,7 @@ Avoid these terms in generated content:
 
 ### Error Handling
 
-- Agents have built-in retry mechanism (retry counts vary: 2 for quality gate, 3 for scraper, 5 for pipeline agents)
+- Agents have built-in retry mechanism (retry counts vary per agent — see Agent Development above)
 - Handle file I/O errors explicitly
 - Validate structured outputs before passing between agents
 - `UnexpectedModelBehavior` is caught in the workflow with fallback to `_QualityState.last_output` (graceful degradation)
@@ -148,12 +152,12 @@ Avoid these terms in generated content:
 ### Modifying Agent Behavior
 
 - Update system prompt rules
-- Test with real job postings from `files/`
+- Test against a real job posting URL with `uv run sira tailor … --verbose`
 - Run auditor agent to validate output quality
 
 ### Testing Resume Parsing
 
-- Use Markdown files from `files/` directory
+- Use a real Markdown resume, or build a `CV` with `tests/factories.py`
 - Verify structured `CV` object contains all original information
 - Ensure no data loss during parsing
 
@@ -171,6 +175,7 @@ Avoid these terms in generated content:
 
 - `pydantic-ai[dbos,groq,mistral,cohere,bedrock]>=2.43,<3`: Agent framework + DBOS durable execution (xAI is an opt-in `xai` extra)
 - `playwright>=1.56.0`: Web scraping
+- `platformdirs>=4`: per-user data directory (`sira/paths.py`)
 - `transformers>=4.45`, `torch>=2.2`: optional `guard` extra — local prompt-injection classifier
 - `html2text>=2025.4.15`: HTML → Markdown
 - `markitdown[docx,pdf]>=0.1.0`: DOCX/PDF → Markdown
@@ -181,7 +186,7 @@ Avoid these terms in generated content:
 - `rich>=14.2.0`: Console formatting
 - `aiofiles>=25.1.0`: Async file I/O
 
-**Dev dependencies**: `pytest>=8.0.0`, `pytest-anyio>=0.0.0`, `pytest-cov>=7.1.0`, `pytest-subtests>=0.13.0`, `ruff>=0.14.6`, `commitizen>=4.15.1`
+**Dev dependencies**: `anyio>=4.11.0`, `pytest>=8.0.0`, `pytest-anyio>=0.0.0`, `pytest-cov>=7.1.0`, `pytest-subtests>=0.13.0`, `ruff>=0.14.6`, `commitizen>=4.15.1`
 
 **Build**: `hatchling`
 

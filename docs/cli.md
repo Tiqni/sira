@@ -1,11 +1,19 @@
 # CLI reference
 
-Sira exposes two commands, both taking **positional arguments** — it never prompts you
-for the URL or the resume path.
+Sira exposes five commands. The two that run the pipeline take **positional
+arguments** — Sira never prompts you for the URL or the resume path:
 
 ```bash
 uv run sira tailor <JOB_URL> <RESUME_PATH> [OPTIONS]
 uv run sira re-tailor <JOB_ID> <RECOMMENDATIONS> [OPTIONS]
+```
+
+The other three manage runs and the environment:
+
+```bash
+uv run sira resume <RUN_ID>      # continue a killed, crashed, or failed run
+uv run sira runs [--limit N]     # list recent runs
+uv run sira setup                # download the Chromium browser (once)
 ```
 
 You can also run the module directly, which bypasses the installed console script:
@@ -121,8 +129,8 @@ your `PATH`. Exits with code 1 if the download fails.
 
 ## Options
 
-Every option below works on **both** commands, except `--resume-path`, which is
-`re-tailor` only.
+Every option below works on both `tailor` and `re-tailor`, except `--resume-path`,
+which is `re-tailor` only. `resume` accepts only `--verbose` and `--style`.
 
 ### Input and output
 
@@ -166,7 +174,8 @@ tokens and time; lowering it does the opposite. Turning it off with
 
 !!! note "`--fast` and `--model` together"
     `--fast` sets a two-tier model split: `openai:gpt-5-nano` for mechanical stages
-    (Parser, Analyst, Reviewer, Quality Gate) and a stronger model for the rest. If
+    (Parser, Analyst, Reviewer, Quality Gate, Skill Matcher, Job Scraper) and a
+    stronger model for the rest (Writer, Auditor, Report). If
     you also pass `--model`, your choice becomes the strong tier and the fast tier
     stays `openai:gpt-5-nano`. Combining `--fast` with a non-OpenAI `--model` therefore
     still needs an `OPENAI_API_KEY` for the fast tier.
