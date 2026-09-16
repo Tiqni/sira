@@ -36,8 +36,9 @@ def test_css_names_every_semantic_class():
         assert selector in css
 
 
-def test_links_never_wrap_inside_the_url():
-    assert (
-        "a { color: #1F4E79; text-decoration: none; white-space: nowrap; }"
-        in build_css(MODERN)
-    )
+def test_only_contact_links_are_kept_on_one_line():
+    # The contact line should wrap at its separators, not inside a URL — but a
+    # long certification link in the body must still wrap, or it gets clipped.
+    css = build_css(MODERN)
+    assert "a { color: #1F4E79; text-decoration: none; }" in css
+    assert ".contact a { white-space: nowrap; }" in css
