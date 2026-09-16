@@ -1,24 +1,35 @@
 <!DOCTYPE html>
 <html>
 <body>
-{% macro section_title(text) %}<h2 class="section-title">{{ text | upper if caps else text }}</h2>{% endmacro %}
+{# Every section is a heading with id "section-<slug>" followed by a body div
+   with id "section-<slug>-body". pdf.py uses the pair to detect a heading
+   left alone at the bottom of a page (issue #21). The div has no CSS, so it
+   does not change the layout. #}
+{% macro section(title) %}
+{% set slug = title | lower | replace(' ', '-') %}
+<h2 class="section-title" id="section-{{ slug }}">{{ title | upper if caps else title }}</h2>
+<div class="section-body" id="section-{{ slug }}-body">
+{{ caller() }}</div>
+{% endmacro %}
 <div class="name">{{ cv.full_name }}</div>
 {% if contact_items %}
 <div class="contact">{{ contact_items | map('inline') | join(' · ') }}</div>
 {% endif %}
 {% if cv.summary.strip() %}
-{{ section_title('Summary') }}
+{% call section('Summary') %}
 <p>{{ cv.summary | inline }}</p>
+{% endcall %}
 {% endif %}
 {% set groups = cv.skill_groups | selectattr('skills') | list %}
 {% if groups %}
-{{ section_title('Skills') }}
+{% call section('Skills') %}
 {% for group in groups %}
 <p class="skill-group"><b>{{ group.category }}:</b> {{ group.skills | map('inline') | join(', ') }}</p>
 {% endfor %}
+{% endcall %}
 {% endif %}
 {% if cv.experience %}
-{{ section_title('Experience') }}
+{% call section('Experience') %}
 {% for exp in cv.experience %}
 <div class="entry">
 <p class="entry-head"><b>{{ exp.role }}</b> — {{ exp.company }}{% if exp.dates %} · <span class="dates">{{ exp.dates }}</span>{% endif %}</p>
@@ -31,17 +42,19 @@
 {% endif %}
 </div>
 {% endfor %}
+{% endcall %}
 {% endif %}
 {% if cv.projects %}
-{{ section_title('Projects') }}
+{% call section('Projects') %}
 {% for project in cv.projects %}
 <div class="entry">
 <p class="entry-head"><b>{{ project.name }}</b> — {{ project.description | inline }}{% if project.link %} ({{ project.link | inline }}){% endif %}</p>
 </div>
 {% endfor %}
+{% endcall %}
 {% endif %}
 {% if cv.education %}
-{{ section_title('Education') }}
+{% call section('Education') %}
 {% for edu in cv.education %}
 <div class="entry">
 <p class="entry-head"><b>{{ edu.degree }}</b> — {{ edu.institution }}{% if edu.dates %} · <span class="dates">{{ edu.dates }}</span>{% endif %}</p>
@@ -50,22 +63,25 @@
 {% endif %}
 </div>
 {% endfor %}
+{% endcall %}
 {% endif %}
 {% if cv.certifications %}
-{{ section_title('Certifications') }}
+{% call section('Certifications') %}
 <ul class="bullets">
 {% for item in cv.certifications %}
 <li>{{ item | inline }}</li>
 {% endfor %}
 </ul>
+{% endcall %}
 {% endif %}
 {% if cv.publications %}
-{{ section_title('Publications') }}
+{% call section('Publications') %}
 <ul class="bullets">
 {% for item in cv.publications %}
 <li>{{ item | inline }}</li>
 {% endfor %}
 </ul>
+{% endcall %}
 {% endif %}
 </body>
 </html>
