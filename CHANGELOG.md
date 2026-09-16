@@ -5,6 +5,17 @@ All notable changes to this project are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## v2.1.0 (2026-09-16)
+
+### Feat
+
+- **skills**: collapse duplicate skill variants before rendering (#23)
+
+### Fix
+
+- **rendering**: parse emphasis inside link text (#26)
+- **rendering**: keep section headings with their content across page breaks (#25)
+
 ## v2.0.0 (2026-09-15)
 
 ### BREAKING CHANGE
